@@ -43,6 +43,7 @@ from lib.url_manager import classify_urls
 from lib.history_tracker import HistoryTracker
 from lib.html_scraper import HTMLScraper
 from lib.image_processor import ImageProcessor
+from lib.audio_processor import AudioProcessor
 from lib.facebook_processor import FacebookProcessor
 from lib.text_extractor import extract_and_save_pdf_text
 
@@ -79,25 +80,31 @@ def run_pipeline(custom_date_str=None):
         history_tracker = HistoryTracker(paths['history_file'])
         html_scraper = HTMLScraper(full_config_for_components)
         image_processor = ImageProcessor(full_config_for_components)
+        audio_processor = AudioProcessor(full_config_for_components)
         facebook_processor = FacebookProcessor(full_config_for_components)
-        logger.info("Componentes inicializados (History, Scraper, ImageProcessor, FacebookProcessor).")
+        logger.info("Componentes inicializados (History, Scraper, ImageProcessor, AudioProcessor, FacebookProcessor).")
     except Exception as e:
-         logger.critical(f"Error fatal inicializando componentes: {e}", exc_info=True)
-         if 'html_scraper' in locals() and hasattr(html_scraper, 'close_selenium_driver'):
-             html_scraper.close_selenium_driver()
-         return
+        logger.critical(f"Error fatal inicializando componentes: {e}", exc_info=True)
+        if 'html_scraper' in locals() and hasattr(html_scraper, 'close_selenium_driver'):
+            html_scraper.close_selenium_driver()
+        return
 
     processed_data = {
         "html": {},
         "images_api": [],
+        "audio": {},
+        "audio_transcriptions": [],
         "facebook": {},
         "stats": {}
     }
     all_links = []
     downloaded_image_metadata = {} # Definir fuera del try para el finally
+    downloaded_audio_metadata = {} # Metadatos de audio descargados
     img_down_duration = 0
     html_scrap_duration = 0
     img_api_duration = 0
+    audio_down_duration = 0
+    audio_transcription_duration = 0
     facebook_duration = 0
 
 
@@ -133,7 +140,7 @@ def run_pipeline(custom_date_str=None):
 
         # --- 4. Filtrar URLs ya procesadas ---
         logger.info("--- Paso 2: Filtrando URLs por historial ---")
-        links_to_process = history_tracker.get_unprocessed_links(all_links)
+        links_to_process = history_tracker.get_unprocessed_links(all_links, today_date_for_filename)
         logger.info(f"URLs nuevas para procesar: {len(links_to_process)} (de {len(all_links)} total)")
         if not links_to_process:
              logger.info("No hay URLs nuevas para procesar en esta ejecución.")
@@ -192,6 +199,7 @@ def run_pipeline(custom_date_str=None):
 
         # --- 8. Procesar Imágenes Descargadas (API) ---
         logger.info("--- Paso 6: Procesando Imágenes Descargadas (API) ---")
+        logger.info("El sistema utilizará procesamiento adaptativo con reintentos para imágenes.")
         
         # Comprobar si hay imágenes descargadas, ya sea de la ejecución actual o existentes
         if downloaded_image_metadata:
@@ -239,8 +247,40 @@ def run_pipeline(custom_date_str=None):
             else:
                 logger.info("No hubo imágenes descargadas para procesar con la API.")
         
-        # --- 9. Procesar URLs de Facebook ---
-        logger.info("--- Paso 7: Procesando URLs de Facebook ---")
+        # --- 9. Procesar archivos de audio ---
+        logger.info("--- Paso 7: Procesando archivos de audio ---")
+        
+        # Obtener enlaces de audio de la clasificación
+        audio_links = categories.get('audio', [])
+        if audio_links:
+            # Descargar archivos de audio
+            audio_down_start = time.time()
+            logger.info(f"Descargando {len(audio_links)} archivos de audio")
+            downloaded_audio_metadata = audio_processor.download_audio_parallel(audio_links, today_date_for_filename)
+            audio_down_duration = time.time() - audio_down_start
+            logger.info(f"Descarga de archivos de audio completada en {audio_down_duration:.2f} seg.")
+            
+            # Registrar URLs procesadas
+            if downloaded_audio_metadata:
+                history_tracker.add_processed_urls(list(downloaded_audio_metadata.keys()))
+                
+            # Transcribir archivos de audio (máx 12 minutos)
+            if downloaded_audio_metadata:
+                audio_trans_start = time.time()
+                logger.info(f"Transcribiendo archivos de audio...")
+                processed_data["audio"] = downloaded_audio_metadata
+                processed_data["audio_transcriptions"] = audio_processor.transcribe_audio(
+                    downloaded_audio_metadata, 
+                    today_date_for_filename, 
+                    max_duration_minutes=12
+                )
+                audio_transcription_duration = time.time() - audio_trans_start
+                logger.info(f"Transcripción de audio completada en {audio_transcription_duration:.2f} seg.")
+        else:
+            logger.info("No hay archivos de audio para procesar.")
+        
+        # --- 10. Procesar URLs de Facebook ---
+        logger.info("--- Paso 8: Procesando URLs de Facebook ---")
         
         # Búsqueda de URLs de Facebook en archivos sociales
         facebook_links = []
@@ -310,7 +350,7 @@ def run_pipeline(custom_date_str=None):
             logger.info("No hay URLs de Facebook para procesar.")
 
 
-        # --- 10. Extraer Texto de PDFs de Facebook ---
+        # --- 11. Extraer Texto de PDFs de Facebook ---
         logger.info("--- Paso 9: Extrayendo Texto de PDFs de Facebook ---")
         facebook_pdf_texts = {}
         
@@ -332,7 +372,7 @@ def run_pipeline(custom_date_str=None):
             except Exception as e:
                 logger.error(f"Error al guardar textos de PDFs de Facebook: {e}")
         
-        # --- 11. Generar Estadísticas y Consolidar ---
+        # --- 12. Generar Estadísticas y Consolidar ---
         logger.info("--- Paso 10: Generando Estadísticas y Consolidando ---")
         stats_start_time = time.time()
         # Cálculos de estadísticas (sin cambios aquí, parecen correctos)
@@ -392,8 +432,8 @@ def run_pipeline(custom_date_str=None):
         save_stats(stats, paths['processing_stats_json'])
         logger.info(f"Estadísticas generadas y guardadas en {stats_duration:.2f} seg.")
 
-        # --- 10. Verificar contenido HTML y de imágenes existente para incluir en consolidado ---
-        logger.info("--- Paso 9: Verificando contenido HTML e imágenes existentes ---")
+        # --- 13. Verificar contenido HTML y de imágenes existente para incluir en consolidado ---
+        logger.info("--- Paso 11: Verificando contenido HTML e imágenes existentes ---")
         
         # Si processed_data["html"] está vacío, intentar cargar desde archivo si existe
         if not processed_data["html"] and os.path.exists(paths['scraped_texts_json']):
@@ -433,18 +473,20 @@ def run_pipeline(custom_date_str=None):
                      logger.warning(f"Error cargando texto del PDF para consolidación: {e}")
              
              consolidation_data = {
-                 "metadata": {
-                     "source_pdf": os.path.basename(paths['pdf_input']),
-                     "processing_date": stats["run_timestamp"],
-                     "stats_summary": stats
-                 },
-                 "extracted_content": {
-                     "pdf_paragraphs": pdf_paragraphs,
-                     "html_pages": processed_data["html"],
-                     "image_texts": processed_data["images_api"],
-                     "facebook_results": processed_data["facebook"],
-                     "facebook_texts": facebook_pdf_texts
-                 }
+                     "metadata": {
+                         "source_pdf": os.path.basename(paths['pdf_input']),
+                         "processing_date": stats["run_timestamp"],
+                         "stats_summary": stats
+                     },
+                     "extracted_content": {
+                         "pdf_paragraphs": pdf_paragraphs if pdf_paragraphs else {},
+                         "html_pages": processed_data["html"],
+                         "image_texts": processed_data["images_api"],
+                         "facebook_results": processed_data["facebook"],
+                         "facebook_texts": facebook_pdf_texts,
+                         "audio_metadata": processed_data.get("audio", {}),
+                         "audio_transcriptions": processed_data.get("audio_transcriptions", [])
+                     }
              }
              # Asegurar que el directorio 'output' exista
              os.makedirs(os.path.dirname(consolidated_output_path), exist_ok=True)

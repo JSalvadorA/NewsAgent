@@ -2,3 +2,7 @@ api:
   prompt_key: "detallado"
   batch_size: 3
   pause_seconds: 60
+
+# Configuración para el procesamiento adaptativo de imágenes
+# batch_size: Tamaño máximo del lote (1-3 imágenes)
+# pause_seconds: Pausa entre lotes y reintentos

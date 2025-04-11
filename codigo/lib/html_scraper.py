@@ -16,25 +16,11 @@ from webdriver_manager.chrome import ChromeDriverManager # Gestiona driver
 # Importar utilidades locales
 from .cache_utils import get_cache_key, load_from_cache, save_to_cache
 from .file_manager import save_to_json # Para guardar progreso
+from .request_utils import get_session # Importar sistema centralizado de sesiones
 
 logger = logging.getLogger(__name__)
 
 # --- Funciones de ayuda ---
-
-def create_session_with_retries(retries=3, backoff_factor=0.5, status_forcelist=(500, 502, 503, 504)):
-    """Crea una sesión de Requests con reintentos configurados."""
-    session = requests.Session()
-    retry_strategy = Retry(
-        total=retries,
-        read=retries,
-        connect=retries,
-        backoff_factor=backoff_factor,
-        status_forcelist=status_forcelist,
-    )
-    adapter = HTTPAdapter(max_retries=retry_strategy)
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
-    return session
 
 def normalize_text(text):
     """Limpia y normaliza el texto extraído."""
@@ -135,7 +121,7 @@ def scrape_with_selenium(url, driver):
 class HTMLScraper:
     def __init__(self, config):
         self.config = config
-        self.session = create_session_with_retries()
+        self.session = get_session()  # Usar sesión global compartida
         self.headers = config.get('headers', {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124'}) # Usa User-Agent de config
         self.cache_dir = config.get('paths', {}).get('cache_dir')
         self.cache_expiry = config.get('cache_expiry')
@@ -144,9 +130,27 @@ class HTMLScraper:
 
     def _get_selenium_driver(self):
          """Obtiene o inicializa el driver de Selenium."""
-         if self.selenium_driver is None:
+         try:
+             # Verificar si el driver existente está activo
+             if self.selenium_driver is not None:
+                 try:
+                     # Intentar una acción simple para verificar si el driver está activo
+                     self.selenium_driver.current_url
+                     return self.selenium_driver
+                 except Exception:
+                     logger.warning("Driver de Selenium existente no responde. Reinicializando...")
+                     try:
+                         self.selenium_driver.quit()
+                     except:
+                         pass
+                     self.selenium_driver = None
+             
+             # Inicializar nuevo driver
              self.selenium_driver = setup_selenium_driver()
-         return self.selenium_driver
+             return self.selenium_driver
+         except Exception as e:
+             logger.error(f"Error inicializando driver de Selenium: {e}")
+             return None
 
     def close_selenium_driver(self):
          """Cierra el driver de Selenium si está abierto."""
@@ -164,6 +168,7 @@ class HTMLScraper:
         """
         Realiza el scraping de una única URL (diccionario con 'URL', 'Context', 'Page').
         Gestiona caché y decide si usar Requests o Selenium.
+        Implementa reintentos adaptativos para problemas de conexión.
         """
         url = url_info.get("URL")
         context = url_info.get("Context", "")
@@ -182,81 +187,117 @@ class HTMLScraper:
                 if 'page' not in cached_result: cached_result['page'] = page
                 return url, cached_result
 
-        # Decidir si usar Selenium (ejemplo simple: para ciertos dominios)
-        # Ajusta esta lógica según sea necesario
+        # Decidir si usar Selenium (para sitios dinámicos o problemáticos)
         use_selenium = False
-        if any(domain in url.lower() for domain in ['[example.com/dynamic](https://www.google.com/search?q=https://example.com/dynamic)', 'javascript-heavy.site']):
+        if any(domain in url.lower() for domain in [
+                'facebook.com', 'twitter.com', 'instagram.com', 'linkedin.com',
+                'javascript', 'dynamic', 'react', 'angular', 'vue'
+            ]):
              use_selenium = True
              logger.info(f"Usando Selenium para: {url}")
 
-
+        # Configuración de reintentos
+        max_retries = 3  # Número máximo de intentos
+        retry_delays = [2, 5, 10]  # Segundos de espera entre reintentos (aumenta progresivamente)
+        retry_count = 0
         result = {}
-        try:
-            if use_selenium:
-                driver = self._get_selenium_driver()
-                if driver:
-                     content = scrape_with_selenium(url, driver)
+        last_error = None
+        
+        # Bucle de reintentos
+        while retry_count <= max_retries:
+            try:
+                if use_selenium:
+                    driver = self._get_selenium_driver()
+                    if driver:
+                         content = scrape_with_selenium(url, driver)
+                    else:
+                         content = {"error": "Selenium driver failed to initialize"}
+                         # No tiene sentido reintentar si el driver falló
+                         break
                 else:
-                     content = {"error": "Selenium driver failed to initialize"}
-            else:
-                # Usar Requests
-                logger.debug(f"Scrapeando con Requests: {url}")
-                response = self.session.get(url, headers=self.headers, timeout=20, allow_redirects=True) # Aumentar timeout, permitir redirects
-                response.raise_for_status() # Error si no es 2xx
+                    # Usar Requests
+                    logger.debug(f"Scrapeando con Requests{' (reintento '+str(retry_count)+')' if retry_count > 0 else ''}: {url}")
+                    response = self.session.get(url, headers=self.headers, timeout=30 if retry_count > 0 else 20, allow_redirects=True)
+                    response.raise_for_status() # Error si no es 2xx
 
-                content_type = response.headers.get('Content-Type', '').lower()
-                if 'text/html' not in content_type:
-                    logger.info(f"Contenido no es HTML para {url} ({content_type}). Omitiendo body.")
-                    content = {"content_type": content_type, "message": "No HTML content", "metadata": {"url": response.url}} # Guardar URL final
-                else:
-                    # Asegurar codificación correcta
-                    response.encoding = response.apparent_encoding if response.apparent_encoding else 'utf-8'
-                    soup = BeautifulSoup(response.text, "html.parser")
+                    content_type = response.headers.get('Content-Type', '').lower()
+                    if 'text/html' not in content_type:
+                        logger.info(f"Contenido no es HTML para {url} ({content_type}). Omitiendo body.")
+                        content = {"content_type": content_type, "message": "No HTML content", "metadata": {"url": response.url}} # Guardar URL final
+                    else:
+                        # Asegurar codificación correcta
+                        response.encoding = response.apparent_encoding if response.apparent_encoding else 'utf-8'
+                        soup = BeautifulSoup(response.text, "html.parser")
 
-                    # Extraer metadatos
-                    title_tag = soup.find("title")
-                    title = title_tag.string.strip() if title_tag else ""
-                    description_tag = soup.find("meta", attrs={"name": re.compile(r"description", re.I)})
-                    description = description_tag["content"].strip() if description_tag and description_tag.get("content") else ""
+                        # Extraer metadatos
+                        title_tag = soup.find("title")
+                        title = title_tag.string.strip() if title_tag else ""
+                        description_tag = soup.find("meta", attrs={"name": re.compile(r"description", re.I)})
+                        description = description_tag["content"].strip() if description_tag and description_tag.get("content") else ""
 
-                    metadata = {"title": title, "description": description, "url": response.url} # Guardar URL final
+                        metadata = {"title": title, "description": description, "url": response.url} # Guardar URL final
 
-                    # Limpiar HTML antes de extraer texto
-                    for tag in soup(["script", "style", "header", "footer", "nav", "aside", "form"]):
-                         tag.decompose()
+                        # Limpiar HTML antes de extraer texto
+                        for tag in soup(["script", "style", "header", "footer", "nav", "aside", "form"]):
+                             tag.decompose()
 
-                    text = normalize_text(soup.get_text(separator=' ', strip=True))
-                    content = {"metadata": metadata, "text": text, "content_type": "text/html"}
+                        text = normalize_text(soup.get_text(separator=' ', strip=True))
+                        content = {"metadata": metadata, "text": text, "content_type": "text/html"}
 
-            # Añadir contexto, página y calcular relevancia a cualquier resultado exitoso (no error)
-            if "error" not in content:
-                full_text_for_relevance = f"{content.get('metadata', {}).get('title', '')} {content.get('metadata', {}).get('description', '')} {content.get('text', '')}"
-                content["relevance"] = calculate_relevance(full_text_for_relevance, self.keywords)
+                # Añadir contexto, página y calcular relevancia a cualquier resultado exitoso (no error)
+                if "error" not in content:
+                    full_text_for_relevance = f"{content.get('metadata', {}).get('title', '')} {content.get('metadata', {}).get('description', '')} {content.get('text', '')}"
+                    content["relevance"] = calculate_relevance(full_text_for_relevance, self.keywords)
 
-            # Añadir siempre contexto y página al resultado final
-            content["context"] = context
-            content["page"] = page
-            result = content
+                # Añadir siempre contexto y página al resultado final
+                content["context"] = context
+                content["page"] = page
+                result = content
 
-            # Guardar en caché si fue exitoso (sin error) y el caché está habilitado
-            if "error" not in result and self.cache_dir:
-                save_to_cache(self.cache_dir, cache_key, result)
+                # Guardar en caché si fue exitoso (sin error) y el caché está habilitado
+                if "error" not in result and self.cache_dir:
+                    save_to_cache(self.cache_dir, cache_key, result)
 
-            # Pausa aleatoria para no sobrecargar servidores
-            time.sleep(random.uniform(0.5, 1.5))
+                # Si llegamos aquí sin errores, salimos del bucle de reintentos
+                break
 
-        except requests.exceptions.Timeout:
-            logger.warning(f"Timeout scrapeando {url}")
-            result = {"error": "Timeout", "context": context, "page": page}
-        except requests.exceptions.HTTPError as e:
-             logger.warning(f"Error HTTP {e.response.status_code} scrapeando {url}: {e}")
-             result = {"error": f"HTTP Error: {e.response.status_code}", "status_code": e.response.status_code, "context": context, "page": page}
-        except requests.exceptions.RequestException as e:
-            logger.warning(f"Error de red scrapeando {url}: {e}")
-            result = {"error": f"Network Error: {str(e)}", "context": context, "page": page}
-        except Exception as e:
-            logger.error(f"Error inesperado scrapeando {url}: {e}", exc_info=True) # Log stack trace
-            result = {"error": f"Unexpected Error: {str(e)}", "context": context, "page": page}
+            except requests.exceptions.Timeout:
+                last_error = "Timeout"
+                logger.warning(f"Timeout scrapeando {url}{' (intento '+str(retry_count+1)+'/'+str(max_retries+1)+')' if retry_count < max_retries else ''}")
+            except requests.exceptions.HTTPError as e:
+                last_error = f"HTTP Error: {e.response.status_code}"
+                status_code = e.response.status_code
+                # No reintentar para errores 4xx (excepto 429 Too Many Requests)
+                if status_code // 100 == 4 and status_code != 429:
+                    logger.warning(f"Error HTTP {status_code} scrapeando {url} (no se reintentará): {e}")
+                    result = {"error": last_error, "status_code": status_code, "context": context, "page": page}
+                    break
+                logger.warning(f"Error HTTP {status_code} scrapeando {url}{' (intento '+str(retry_count+1)+'/'+str(max_retries+1)+')' if retry_count < max_retries else ''}: {e}")
+            except requests.exceptions.RequestException as e:
+                last_error = f"Network Error: {str(e)}"
+                logger.warning(f"Error de red scrapeando {url}{' (intento '+str(retry_count+1)+'/'+str(max_retries+1)+')' if retry_count < max_retries else ''}: {e}")
+            except Exception as e:
+                last_error = f"Unexpected Error: {str(e)}"
+                logger.error(f"Error inesperado scrapeando {url}{' (intento '+str(retry_count+1)+'/'+str(max_retries+1)+')' if retry_count < max_retries else ''}: {e}", exc_info=True)
+                # Para errores inesperados, solo reintentar una vez
+                if retry_count >= 1:
+                    break
+            
+            # Incrementar contador de reintentos
+            retry_count += 1
+            
+            # Si hemos alcanzado el máximo de reintentos, registramos el error
+            if retry_count > max_retries:
+                result = {"error": last_error, "context": context, "page": page, "retries": retry_count}
+                break
+            
+            # Pausa antes del siguiente reintento (con backoff exponencial)
+            retry_delay = retry_delays[min(retry_count-1, len(retry_delays)-1)]
+            logger.info(f"Reintentando {url} en {retry_delay} segundos... (intento {retry_count+1}/{max_retries+1})")
+            time.sleep(retry_delay)
+            
+        # Pausa aleatoria para no sobrecargar servidores (después de éxito o agotamiento de reintentos)
+        time.sleep(random.uniform(0.5, 1.5))
 
         return url, result
 

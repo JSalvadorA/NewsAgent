@@ -1,4 +1,50 @@
-# codigo/lib/text_extractor.py
+def filter_pdf_sections(pdf_text_data):
+    """
+    Filtra secciones no deseadas del texto extraído del PDF.
+    Elimina información de correo Gmail, encabezados estándar CONTENIDO_INICIAL y URLs de Google Mail.
+    
+    Args:
+        pdf_text_data (dict): Datos extraídos del PDF con secciones y metadatos
+        
+    Returns:
+        dict: Datos filtrados sin las secciones no deseadas
+    """
+    filtered_data = pdf_text_data.copy()  # Copiar para no modificar el original
+    
+    # 1. Remover sección CONTENIDO_INICIAL completa
+    if "CONTENIDO_INICIAL" in filtered_data:
+        logger.info(f"Eliminando sección CONTENIDO_INICIAL con {len(filtered_data['CONTENIDO_INICIAL'])} entradas")
+        del filtered_data["CONTENIDO_INICIAL"]
+    
+    # 2. Remover metadatos de Gmail en otras secciones
+    sections_to_process = [key for key in filtered_data.keys()]
+    
+    for section_key in sections_to_process:
+        if not isinstance(filtered_data[section_key], list):
+            continue
+            
+        # Filtrar entradas en cada sección
+        filtered_entries = []
+        for entry in filtered_data[section_key]:
+            # Saltarse entradas que contengan URLs de Gmail
+            url = entry.get("metadata", {}).get("url", "")
+            text = entry.get("text", "")
+            
+            # Criterios para excluir
+            is_gmail = "Gmail" in text or "gmail.com" in url.lower() or "Google Mail" in text
+            is_mail_link = url.startswith("https://mail.google.com")
+            is_empty_url = not url and ("RV:" in text or "FW:" in text or "Fwd:" in text)
+            
+            # Si no cumple ningún criterio de exclusión, mantener la entrada
+            if not (is_gmail or is_mail_link or is_empty_url):
+                filtered_entries.append(entry)
+        
+        # Actualizar sección con entradas filtradas
+        if len(filtered_entries) < len(filtered_data[section_key]):
+            logger.info(f"Sección {section_key}: Filtradas {len(filtered_data[section_key]) - len(filtered_entries)} entradas")
+        filtered_data[section_key] = filtered_entries
+    
+    return filtered_data# codigo/lib/text_extractor.py
 """
 Módulo para la extracción de texto estructurado de PDFs.
 Se encarga de identificar cabeceras y párrafos, y organizar la información en un formato JSON estructurado.
@@ -246,6 +292,9 @@ def extract_and_save_pdf_text(pdf_path, date_str=None):
             logger.warning(f"No se pudo extraer texto del PDF o el PDF está vacío: {pdf_path}")
             return False, None
         
+        # Aplicar filtro para eliminar secciones no deseadas
+        filtered_sections = filter_pdf_sections(sections)
+        
         # Crear directorio de salida
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         # Usar la carpeta "input/Out" en lugar de "output"
@@ -257,10 +306,11 @@ def extract_and_save_pdf_text(pdf_path, date_str=None):
         
         # Guardar resultado en JSON
         with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(sections, f, ensure_ascii=False, indent=2)
+            json.dump(filtered_sections, f, ensure_ascii=False, indent=2)
         
         logger.info(f"Texto del PDF extraído y guardado en: {output_file}")
-        logger.info(f"Se encontraron {len(sections)} secciones con un total de {sum(len(v) for v in sections.values())} párrafos")
+        logger.info(f"Se encontraron {len(filtered_sections)} secciones con un total de {sum(len(v) for v in filtered_sections.values())} párrafos")
+        logger.info(f"Se filtraron {sum(len(v) for v in sections.values()) - sum(len(v) for v in filtered_sections.values())} párrafos no deseados")
         
         return True, output_file
     

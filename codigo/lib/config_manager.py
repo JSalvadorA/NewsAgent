@@ -139,6 +139,8 @@ def get_paths(config, custom_date=None):
         "image_download_dir": os.path.join(image_base_dir, "downloads", today_str),
         "image_api_results_json": os.path.join(image_base_dir, "downloads", today_str, "texto_imagenes_api.json"),
         "social_links_json": os.path.join(input_dir, "Social", f"social_links_{today_str}.json"), # Añadido para guardar links sociales
+        "audio_dir": os.path.join(input_dir, "Social", "Audio", today_str),
+        "audio_metadata_json": os.path.join(input_dir, "Social", "Audio", today_str, "audio_metadata.json"),
         "processing_stats_json": os.path.join(input_dir, "Stats", f"stats_{today_str}.json"),
         "history_file": os.path.join(base_dir, "codigo", "lib", "history", "processed_urls.json"), # Mover historial a lib/history
         "cache_dir": os.path.join(base_dir, "cache")
