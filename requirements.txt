@@ -27,8 +27,22 @@ lxml>=4.6.0 # Parser alternativo para bs4, a menudo más rápido
 selenium>=4.0.0
 webdriver-manager>=3.5.0 # Para gestionar chromedriver automáticamente
 
+# API y procesamiento
+google-generativeai>=0.3.0  # Para Gemini API
+openai>=1.0.0  # Para OpenAI API
+
 # Otros (si se usan explícitamente, aunque algunos son dependencias)
 urllib3>=1.26.0
+
+# Jupyter Support
+ipykernel>=6.0.0  # Para ejecutar el kernel de Jupyter
+ipywidgets>=7.6.0  # Para los widgets interactivos en NewsAg.ipynb
+jupyter>=1.0.0  # Para soporte completo de Jupyter
+notebook>=6.0.0  # Para ejecutar notebooks
+
+# Dependencias adicionales para el proyecto
+ffmpeg-python>=0.2.0  # Para procesamiento de audio/video
+pydub>=0.25.0  # Para manipulación de audio
 
 # Para desarrollo y pruebas (opcional, pero recomendado)
 # pytest>=6.2.0
