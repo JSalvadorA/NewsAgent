@@ -1,42 +1,74 @@
-# Ignorar archivos específicos en la carpeta codigo (excepto los que necesitas)
-/codigo/*.py
-/codigo/*.json
+# Gitignore actualizado para el proyecto scr1403
+
+# Ignorar todos los archivos en /codigo/ excepto los específicos que queremos mantener
+/codigo/*
 /codigo/__pycache__/
 
-# Excepciones (archivos que SÍ quieres incluir en codigo/)
+# Archivos que SÍ queremos incluir en /codigo/
 !/codigo/main.py
 !/codigo/notebook_utils.py
+!/codigo/api.py
+!/codigo/openai.py
+!/codigo/process_facebook.py
+!/codigo/run_multi_dates.py
+!/codigo/manage_skipped_images.py
+
+# Incluir TODA la carpeta lib
 !/codigo/lib/
 
+# Pero excluir específicamente los archivos de historial y cache dentro de lib
+/codigo/lib/history/processed_urls.json
+/codigo/lib/__pycache__/
+
 # Ignorar directorios de datos extensos
-input/Images/downloads/*
-input/Images/skipped/*
-input/Out/*
-input/Stats/*
+/input/Images/downloads/*
+/input/Images/skipped/*
+/input/Out/*
+/input/Stats/*
+/input/Social/*
+/input/In/*
 
 # Permitir estructura de carpetas pero no contenido
 !input/Images/downloads/.gitkeep
 !input/Images/skipped/.gitkeep
 !input/Out/.gitkeep
 !input/Stats/.gitkeep
+!input/Social/.gitkeep
+!input/In/.gitkeep
+
+# Todos los archivos JSON de enlaces de imágenes
+/input/Images/image_links_*.json
 
 # Ignorar PDFs descargados
-base/*
+/base/*
 !base/.gitkeep
 
-# Agrega esta línea si no existe
+# PDFs específicos para incluir
+!base/10042025.pdf
+!base/11042025.pdf
+
+# Ignorar cache
 /cache/
+/.env/
 
 # Archivos de salida
-output/*
+/output/*
 !output/.gitkeep
+!output/markdown/.gitkeep
+!output/extracted_texts/.gitkeep
+!output/ocr/.gitkeep
 
 # Logs
-logs/*
+/logs/*
 !logs/.gitkeep
 
-# Archivos de historial extensos
-codigo/lib/history/processed_urls.json
+# Archivos de respaldo
+/backup_historial/*
+!backup_historial/.gitkeep
+
+# Archivos de audio
+/audio/*
+!audio/.gitkeep
 
 # Caché y archivos de Python
 __pycache__/
@@ -51,6 +83,12 @@ Thumbs.db
 
 # Archivos de notebook que no deberían ser comprometidos
 .ipynb_checkpoints/
+*.ipynb
+
+# Excepciones para notebooks específicos que sí queremos incluir
+!developer.ipynb
+!NewsAg.ipynb
+!notes.ipynb
 
 # Archivos de IDE y editor
 .idea/
@@ -59,5 +97,13 @@ Thumbs.db
 *.swo
 
 # Credenciales y claves API (¡importante para seguridad!)
-credentials/*
+/credentials/*
 !credentials/.gitkeep
+/credentials.zip
+
+# Archivos ZIP y otros archivos grandes
+*.zip
+!requirements.txt
+!README.md
+!SOLUCION_PROBLEMAS.md
+!config.yaml

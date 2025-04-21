@@ -1,6 +1,28 @@
 [
     {
         "Page": 2,
+        "URL": "https://www.facebook.com/photo/?fbid=661840323020896&set=pcb.661841169687478",
+        "Rect": [
+            147.6000213623047,
+            28.5,
+            227.4093475341797,
+            38.3226318359375
+        ],
+        "Context": "Gmail - RV Ahora, El Ciclón – DIGITAL, El Cicl ente, Santa Victoria, Fuego, La Nor"
+    },
+    {
+        "Page": 2,
+        "URL": "https://www.facebook.com/photo?fbid=122141649638553037&set=pcb.122141650088553037",
+        "Rect": [
+            163.56190490722656,
+            107.0814208984375,
+            201.01087951660156,
+            116.90411376953125
+        ],
+        "Context": "Radio RCC 99.3 FM, Ra mativa, El Minero, Primic Juanse Guevara)"
+    },
+    {
+        "Page": 2,
         "URL": "https://www.youtube.com/watch?v=P7nPFaP38tg",
         "Rect": [
             311.51605224609375,
@@ -9,6 +31,50 @@
             260.56085205078125
         ],
         "Context": "p e Cartolín, denunciaron las demo dapal. (Señal Alternativa)"
+    },
+    {
+        "Page": 2,
+        "URL": "https://www.facebook.com/ancashnoticiasoficial/videos/1358975601768990",
+        "Rect": [
+            361.243408203125,
+            574.88671875,
+            425.70477294921875,
+            584.70947265625
+        ],
+        "Context": "p Municipalidad Provincial de Hua ervicio. (Áncash Noticias, Centra"
+    },
+    {
+        "Page": 2,
+        "URL": "https://www.facebook.com/watch/?v=623524663984097",
+        "Rect": [
+            430.6160888671875,
+            574.88671875,
+            539.279541015625,
+            584.70947265625
+        ],
+        "Context": "p vincial de Huaraz. Aunque no son oticias, Central de Noticias Áncash)"
+    },
+    {
+        "Page": 2,
+        "URL": "https://www.facebook.com/VisionInformaHoy/videos/979821410925573",
+        "Rect": [
+            48.14536666870117,
+            624.0001220703125,
+            124.27115631103516,
+            633.8228759765625
+        ],
+        "Context": "iniciar protestas si no son a (Visión Informa Hoy)"
+    },
+    {
+        "Page": 2,
+        "URL": "https://www.facebook.com/VisionInformaHoy/videos/979821410925573",
+        "Rect": [
+            192.41603088378906,
+            673.1136474609375,
+            267.92791748046875,
+            682.936279296875
+        ],
+        "Context": "g g ntensas lluvias. Acusan a la empre encias. (Visión Informa Hoy)"
     },
     {
         "Page": 3,

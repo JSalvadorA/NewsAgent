@@ -5,6 +5,8 @@ import logging
 from datetime import datetime
 import time
 import json
+import requests
+import subprocess
 
 # Asegurarse de que el directorio 'lib' esté en el path para imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -45,7 +47,8 @@ from lib.html_scraper import HTMLScraper
 from lib.image_processor import ImageProcessor
 from lib.audio_processor import AudioProcessor
 from lib.facebook_processor import FacebookProcessor
-from lib.text_extractor import extract_and_save_pdf_text
+from lib.text_extractor import extract_and_save_pdf_text, extract_text_with_ocr
+from lib.text_similarity import consolidate_pdf_texts, get_unprocessed_urls
 
 # -------------------------------
 # Función principal de orquestación
@@ -221,10 +224,35 @@ def run_pipeline(custom_date_str=None):
                 
                 # Si hay un archivo de texto de imágenes pero está vacío o no existe
                 output_json_path = os.path.join(images_dir, "texto_imagenes_api.json")
-                process_images = bool(image_files) and (not os.path.exists(output_json_path) or os.path.getsize(output_json_path) == 0)
+                
+                # Nueva lógica para verificar si hay resultados válidos o solo errores de API
+                process_images = True  # Por defecto procesar las imágenes
+                
+                if os.path.exists(output_json_path) and os.path.getsize(output_json_path) > 0:
+                    try:
+                        # Cargar el archivo existente para verificar si contiene solo errores
+                        with open(output_json_path, 'r', encoding='utf-8') as f:
+                            existing_results = json.load(f)
+                        
+                        # Verificar si hay resultados exitosos (sin errores API)
+                        successful_results = [res for res in existing_results if not res.get('error') and res.get('extracted_text')]
+                        
+                        # Solo procesar si no hay resultados exitosos
+                        if successful_results:
+                            process_images = False
+                            logger.info(f"Se encontraron {len(successful_results)} imágenes ya procesadas correctamente.")
+                        else:
+                            # Verificar si hay errores específicos de API key
+                            api_key_errors = [res for res in existing_results if "API key not valid" in str(res.get('error', ''))]
+                            if api_key_errors:
+                                logger.warning(f"Se detectaron {len(api_key_errors)} imágenes con errores de clave API. Intentando reprocesar.")
+                            else:
+                                logger.warning(f"Se encontraron {len(existing_results)} imágenes con errores. Intentando reprocesar.")
+                    except Exception as e:
+                        logger.warning(f"Error analizando archivo de resultados de imágenes: {e}. Se reprocesarán las imágenes.")
                 
                 if process_images:
-                    logger.info(f"Encontradas {len(image_files)} imágenes existentes sin procesar en {images_dir}")
+                    logger.info(f"Encontradas {len(image_files)} imágenes existentes para procesar en {images_dir}")
                     # Crear metadata similar a la que genera image_processor.download_images_parallel
                     existing_metadata = {}
                     for idx, img_path in enumerate(image_files, 1):
@@ -243,9 +271,9 @@ def run_pipeline(custom_date_str=None):
                     img_api_duration = time.time() - img_api_start
                     logger.info(f"Procesamiento API de imágenes existentes completado en {img_api_duration:.2f} seg.")
                 else:
-                    logger.info("No hubo imágenes descargadas o ya están procesadas.")
+                    logger.info("No hay imágenes pendientes para procesar (ya procesadas correctamente).")
             else:
-                logger.info("No hubo imágenes descargadas para procesar con la API.")
+                logger.info("No se encontraron imágenes para procesar con la API.")
         
         # --- 9. Procesar archivos de audio ---
         logger.info("--- Paso 7: Procesando archivos de audio ---")
@@ -372,6 +400,129 @@ def run_pipeline(custom_date_str=None):
             except Exception as e:
                 logger.error(f"Error al guardar textos de PDFs de Facebook: {e}")
         
+        # Verificar PDFs específicos (28032025-39.pdf y 28032025-40.pdf) por nombre
+        if today_date_for_filename == "28032025":
+            specific_pdfs = ["28032025-39.pdf", "28032025-40.pdf"]
+            for specific_pdf in specific_pdfs:
+                pdf_path = os.path.join(project_root, "base", today_date_for_filename, specific_pdf)
+                if os.path.exists(pdf_path):
+                    logger.info(f"Verificando extracción de texto para PDF específico: {specific_pdf}")
+                    
+                    # Intentar extraer texto con OCR utilizando la nueva API con verificación de dependencias
+                    try:
+                        # Crear ruta de salida para el texto OCR
+                        output_dir = os.path.join(project_root, "output", "ocr", today_date_for_filename)
+                        os.makedirs(output_dir, exist_ok=True)
+                        output_path = os.path.join(output_dir, f"{os.path.splitext(specific_pdf)[0]}_ocr.json")
+                        
+                        # Ejecutar OCR con la nueva API
+                        ocr_result = extract_text_with_ocr(
+                            pdf_path=pdf_path,
+                            output_path=output_path,
+                            dpi=300,
+                            language='spa',
+                            use_gpu=False
+                        )
+                        
+                        # Verificar si la extracción fue exitosa
+                        if ocr_result["success"] and ocr_result["sections"]:
+                            # Crear nombre descriptivo para este PDF específico
+                            pdf_name = os.path.splitext(specific_pdf)[0]
+                            
+                            # Añadir a facebook_pdf_texts para que aparezca en el consolidado
+                            if 'facebook_pdf_texts' not in locals():
+                                facebook_pdf_texts = {}
+                            
+                            facebook_pdf_texts[pdf_name] = {
+                                "metadata": {
+                                    "source": specific_pdf,
+                                    "processed_with": "OCR",
+                                    "pages_processed": ocr_result["metadata"]["pages_processed"]
+                                },
+                                "content": ocr_result["sections"]
+                            }
+                            
+                            logger.info(f"Texto extraído con OCR para {specific_pdf}: {len(ocr_result['sections'])} secciones")
+                        else:
+                            error_msg = ocr_result.get("error", "Razón desconocida")
+                            logger.warning(f"No se pudo extraer texto con OCR para {specific_pdf}: {error_msg}")
+                    except Exception as e:
+                        logger.error(f"Error procesando PDF específico {specific_pdf}: {e}", exc_info=True)
+
+        # Verificar PDFs generales para procesarlos con OCR si es necesario
+        if os.path.exists(project_root):
+            logger.info("Buscando PDFs en el directorio base para procesarlos con OCR si es necesario")
+            # Crear directorio para resultados OCR si no existe
+            ocr_output_dir = os.path.join(project_root, "output", "ocr", today_date_for_filename)
+            os.makedirs(ocr_output_dir, exist_ok=True)
+            
+            # Importar las funciones necesarias
+            from lib.pdf_processor import has_text_layer
+            from lib.text_extractor import extract_text_with_ocr
+            
+            # Verificar si Tesseract está instalado
+            try:
+                import pytesseract
+                tesseract_installed = True
+            except ImportError:
+                tesseract_installed = False
+                logger.warning("Pytesseract no está instalado. No se podrá usar OCR para PDFs escaneados.")
+            
+            # Buscar todos los PDFs en el directorio base (solo archivos, no subdirectorios)
+            all_pdfs = [f for f in os.listdir(project_root) if f.lower().endswith('.pdf') and os.path.isfile(os.path.join(project_root, f))]
+            logger.info(f"Se encontraron {len(all_pdfs)} archivos PDF en el directorio base")
+            
+            # Procesar cada PDF
+            for pdf_file in all_pdfs:
+                pdf_path = os.path.join(project_root, pdf_file)
+                logger.info(f"Verificando si el PDF {pdf_file} necesita OCR")
+                
+                # Verificar si el PDF ya tiene capa de texto
+                if not has_text_layer(pdf_path):
+                    if not tesseract_installed:
+                        logger.warning(f"El PDF {pdf_file} necesita OCR, pero Tesseract no está instalado")
+                        continue
+                    
+                    logger.info(f"El PDF {pdf_file} no tiene capa de texto. Procesando con OCR...")
+                    try:
+                        # Ruta de salida para el archivo JSON con el texto extraído
+                        ocr_output_file = os.path.join(ocr_output_dir, f"{os.path.splitext(pdf_file)[0]}_ocr.json")
+                        
+                        # Procesar con OCR
+                        ocr_result = extract_text_with_ocr(
+                            pdf_path=pdf_path,
+                            output_path=ocr_output_file,
+                            dpi=300,
+                            language='spa'
+                        )
+                        
+                        # Verificar si la extracción fue exitosa
+                        if ocr_result.get("success") and ocr_result.get("sections"):
+                            # Crear nombre descriptivo para este PDF
+                            pdf_name = os.path.splitext(pdf_file)[0]
+                            
+                            # Añadir a general_pdf_texts para que aparezca en el consolidado
+                            if 'general_pdf_texts' not in locals():
+                                general_pdf_texts = {}
+                            
+                            general_pdf_texts[pdf_name] = {
+                                "metadata": {
+                                    "source": pdf_file,
+                                    "processed_with": "OCR",
+                                    "pages_processed": ocr_result.get("metadata", {}).get("pages_processed", 0)
+                                },
+                                "content": ocr_result.get("sections", {})
+                            }
+                            
+                            logger.info(f"Texto extraído con OCR para {pdf_file}: {len(ocr_result.get('sections', {}))} secciones")
+                        else:
+                            error_msg = ocr_result.get("error", "Razón desconocida")
+                            logger.warning(f"No se pudo extraer texto con OCR para {pdf_file}: {error_msg}")
+                    except Exception as e:
+                        logger.error(f"Error al procesar {pdf_file} con OCR: {e}", exc_info=True)
+                else:
+                    logger.info(f"El PDF {pdf_file} ya tiene capa de texto. No se necesita OCR.")
+        
         # --- 12. Generar Estadísticas y Consolidar ---
         logger.info("--- Paso 10: Generando Estadísticas y Consolidando ---")
         stats_start_time = time.time()
@@ -453,10 +604,76 @@ def run_pipeline(custom_date_str=None):
                 with open(image_api_results_json, 'r', encoding='utf-8') as f:
                     image_data = json.load(f)
                     if image_data:
-                        logger.info(f"Cargando contenido de imágenes de archivo existente: {image_api_results_json}")
-                        processed_data["images_api"] = image_data
+                        # Verificar si hay al menos un resultado exitoso
+                        successful_results = [res for res in image_data if not res.get('error') and res.get('extracted_text')]
+                        if successful_results:
+                            logger.info(f"Cargando contenido de imágenes de archivo existente: {image_api_results_json}")
+                            processed_data["images_api"] = image_data
+                        else:
+                            logger.warning(f"El archivo {image_api_results_json} contiene solo errores, no será incluido como procesado.")
             except Exception as e:
                 logger.warning(f"Error cargando datos de imágenes desde archivo: {e}")
+        
+        # Verificar si hay transcripciones de audio que no se hayan incluido
+        audio_transcriptions_path = os.path.join(project_root, "audio", f"audio_transcriptions_{today_date_for_filename}.json")
+        if not processed_data.get("audio_transcriptions") and os.path.exists(audio_transcriptions_path):
+            try:
+                with open(audio_transcriptions_path, 'r', encoding='utf-8') as f:
+                    transcription_data = json.load(f)
+                    if transcription_data:
+                        logger.info(f"Cargando transcripciones de audio de archivo existente: {audio_transcriptions_path}")
+                        processed_data["audio_transcriptions"] = transcription_data
+            except Exception as e:
+                logger.warning(f"Error cargando transcripciones de audio desde archivo: {e}")
+        
+        # Verificar PDFs específicos (28032025-39.pdf y 28032025-40.pdf) por nombre
+        if today_date_for_filename == "28032025":
+            specific_pdfs = ["28032025-39.pdf", "28032025-40.pdf"]
+            for specific_pdf in specific_pdfs:
+                pdf_path = os.path.join(project_root, "base", today_date_for_filename, specific_pdf)
+                if os.path.exists(pdf_path):
+                    logger.info(f"Verificando extracción de texto para PDF específico: {specific_pdf}")
+                    
+                    # Intentar extraer texto con OCR utilizando la nueva API con verificación de dependencias
+                    try:
+                        # Crear ruta de salida para el texto OCR
+                        output_dir = os.path.join(project_root, "output", "ocr", today_date_for_filename)
+                        os.makedirs(output_dir, exist_ok=True)
+                        output_path = os.path.join(output_dir, f"{os.path.splitext(specific_pdf)[0]}_ocr.json")
+                        
+                        # Ejecutar OCR con la nueva API
+                        ocr_result = extract_text_with_ocr(
+                            pdf_path=pdf_path,
+                            output_path=output_path,
+                            dpi=300,
+                            language='spa',
+                            use_gpu=False
+                        )
+                        
+                        # Verificar si la extracción fue exitosa
+                        if ocr_result["success"] and ocr_result["sections"]:
+                            # Crear nombre descriptivo para este PDF específico
+                            pdf_name = os.path.splitext(specific_pdf)[0]
+                            
+                            # Añadir a facebook_pdf_texts para que aparezca en el consolidado
+                            if 'facebook_pdf_texts' not in locals():
+                                facebook_pdf_texts = {}
+                            
+                            facebook_pdf_texts[pdf_name] = {
+                                "metadata": {
+                                    "source": specific_pdf,
+                                    "processed_with": "OCR",
+                                    "pages_processed": ocr_result["metadata"]["pages_processed"]
+                                },
+                                "content": ocr_result["sections"]
+                            }
+                            
+                            logger.info(f"Texto extraído con OCR para {specific_pdf}: {len(ocr_result['sections'])} secciones")
+                        else:
+                            error_msg = ocr_result.get("error", "Razón desconocida")
+                            logger.warning(f"No se pudo extraer texto con OCR para {specific_pdf}: {error_msg}")
+                    except Exception as e:
+                        logger.error(f"Error procesando PDF específico {specific_pdf}: {e}", exc_info=True)
         
         # --- 11. Consolidación Final (Opcional) ---
         consolidated_output_path = os.path.join(project_root, 'output', f'consolidated_{today_date_for_filename}.json')
@@ -472,18 +689,35 @@ def run_pipeline(custom_date_str=None):
                  except Exception as e:
                      logger.warning(f"Error cargando texto del PDF para consolidación: {e}")
              
+             # Verificar directorios específicos para PDFs
+             pdf_date_dir = os.path.join(project_root, 'base', today_date_for_filename)
+             pdf_files = []
+             
+             if os.path.exists(pdf_date_dir):
+                 # Listar todos los PDFs en este directorio
+                 pdf_files = [f for f in os.listdir(pdf_date_dir) if f.endswith('.pdf')]
+                 logger.info(f"Se encontraron {len(pdf_files)} archivos PDF en {pdf_date_dir}")
+
+             # NUEVO: Consolidar textos de Facebook para eliminar duplicados
+             if 'facebook_pdf_texts' in locals() and facebook_pdf_texts:
+                 logger.info(f"Consolidando {len(facebook_pdf_texts)} textos de PDFs de Facebook...")
+                 original_count = len(facebook_pdf_texts)
+                 facebook_pdf_texts = consolidate_pdf_texts(facebook_pdf_texts, similarity_threshold=0.85)
+                 logger.info(f"Consolidación completada: {original_count} textos de PDFs reducidos a {len(facebook_pdf_texts)}")
+             
              consolidation_data = {
                      "metadata": {
                          "source_pdf": os.path.basename(paths['pdf_input']),
                          "processing_date": stats["run_timestamp"],
-                         "stats_summary": stats
+                         "stats_summary": stats,
+                         "available_pdfs": pdf_files
                      },
                      "extracted_content": {
                          "pdf_paragraphs": pdf_paragraphs if pdf_paragraphs else {},
                          "html_pages": processed_data["html"],
                          "image_texts": processed_data["images_api"],
                          "facebook_results": processed_data["facebook"],
-                         "facebook_texts": facebook_pdf_texts,
+                         "facebook_texts": facebook_pdf_texts if 'facebook_pdf_texts' in locals() else {},
                          "audio_metadata": processed_data.get("audio", {}),
                          "audio_transcriptions": processed_data.get("audio_transcriptions", [])
                      }
@@ -492,9 +726,26 @@ def run_pipeline(custom_date_str=None):
              os.makedirs(os.path.dirname(consolidated_output_path), exist_ok=True)
              save_to_json(consolidation_data, consolidated_output_path, indent=2)
              logger.info(f"Resultados consolidados guardados en: {consolidated_output_path}")
+
+             # NUEVO: Generar y guardar lista de URLs no procesadas
+             unprocessed_urls = get_unprocessed_urls(all_links, processed_data)
+             if unprocessed_urls:
+                 unprocessed_output_path = os.path.join(project_root, 'output', f'unprocessed_urls_{today_date_for_filename}.json')
+                 save_to_json(unprocessed_urls, unprocessed_output_path, indent=2)
+                 logger.info(f"URLs no procesadas guardadas en: {unprocessed_output_path} ({sum(len(urls) for urls in unprocessed_urls.values())} URLs)")
+             else:
+                 logger.info("No hay URLs sin procesar.")
+                 
         except Exception as e:
             logger.error(f"Error al guardar resultados consolidados: {e}", exc_info=True)
 
+        # Ejecutar script de conversión a Markdown
+        logger.info("Ejecutando conversión de archivos consolidados a Markdown...")
+        try:
+            subprocess.run(['python', 'consolidado_to_markdown.py'])
+            logger.info("Conversión a Markdown completada.")
+        except Exception as e:
+            logger.error(f"Error al ejecutar conversión a Markdown: {e}")
 
     except KeyboardInterrupt:
          logger.warning("Proceso interrumpido por el usuario (Ctrl+C).")
@@ -559,3 +810,59 @@ if __name__ == "__main__":
             date_arg = None
 
     run_pipeline(custom_date_str=date_arg)
+
+def download_audio(url, output_dir):
+    """
+    Descarga un archivo de audio desde una URL y lo guarda en el directorio especificado.
+    
+    Args:
+        url (str): URL del archivo de audio o video.
+        output_dir (str): Directorio donde se guardará el archivo.
+    
+    Returns:
+        str: Ruta del archivo descargado o None si falla.
+    """
+    try:
+        os.makedirs(output_dir, exist_ok=True)
+        filename = url.split('/')[-1]
+        output_path = os.path.join(output_dir, filename)
+        
+        response = requests.get(url, stream=True)
+        if response.status_code == 200:
+            with open(output_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=1024):
+                    if chunk:
+                        f.write(chunk)
+            
+            # Verificar si es un video y extraer audio con ffmpeg si está disponible
+            if not output_path.endswith(('.mp3', '.wav', '.ogg')):
+                audio_path = output_path.rsplit('.', 1)[0] + '.mp3'
+                if subprocess.run(['ffmpeg', '-i', output_path, '-vn', '-acodec', 'copy', audio_path]).returncode == 0:
+                    os.remove(output_path)
+                    output_path = audio_path
+            
+            return output_path
+        else:
+            logger.error(f"Error al descargar {url}: Status code {response.status_code}")
+            return None
+    except Exception as e:
+        logger.error(f"Error al descargar {url}: {e}")
+        return None
+
+def load_audio_urls(file_path):
+    """
+    Carga las URLs de audio desde un archivo JSON.
+    
+    Args:
+        file_path (str): Ruta al archivo JSON con las URLs de audio.
+    
+    Returns:
+        list: Lista de URLs de audio.
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            return list(data.keys())
+    except Exception as e:
+        logger.error(f"Error al cargar URLs de audio desde {file_path}: {e}")
+        return []

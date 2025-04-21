@@ -411,163 +411,146 @@ class ImageProcessor:
 
     def process_downloaded_images_with_api(self, downloaded_metadata):
         """
-        Procesa las imágenes que se descargaron correctamente utilizando la API externa.
-        Gestiona caché basado en el hash del contenido de la imagen.
-        Procesa imágenes en lotes adaptativos (ajustable en la configuración) y hace una pausa entre lotes.
-        Implementa un mecanismo de reintento único para imágenes que fallen en el primer intento.
-        Optimización de recursos priorizando imágenes más pequeñas primero para evitar timeouts.
-        Retorna una lista de resultados de la API.
-        """
-        if not self.api_client:
-             logger.warning("Cliente API no inicializado. Saltando procesamiento de texto de imágenes.")
-             return []
-        if not downloaded_metadata:
-             logger.info("No hay metadatos de imágenes descargadas para procesar con API.")
-             return []
-
-        # Obtener configuración de API del archivo config.yaml
-        api_config = self.config.get('api', {})
-        max_batch_size = api_config.get('batch_size', 3)
-        pause_seconds = api_config.get('pause_seconds', 60)
+        Procesa imágenes descargadas usando API de extracción de texto de imágenes.
+        Implementa procesamiento adaptativo con control de batch_size y reintentos.
         
-        logger.info(f"Configuración de procesamiento: batch_size={max_batch_size}, pause={pause_seconds}s")
+        Args:
+            downloaded_metadata (dict): Metadatos de imágenes descargadas {url: {filepath, filename, ...}}
+            
+        Returns:
+            list: Lista de resultados de API para cada imagen
+        """
+        if not downloaded_metadata:
+            logger.warning("No hay metadatos de imágenes para procesar con la API.")
+            return []
+            
+        if not self.api_client:
+            logger.error("API de extracción de texto de imágenes no inicializada. Verifica la clave API.")
+            # Devolver errores estructurados para todas las imágenes
+            return [
+                {
+                    "image_filename": meta.get("filename", os.path.basename(meta.get("filepath", "unknown"))),
+                    "processed_date": datetime.today().strftime('%d%m%Y'),
+                    "extracted_text": "",
+                    "error": "API client not initialized. Check if API key is valid and configured.",
+                    "_cache_error": True,
+                    "_api_configuration_error": True
+                }
+                for url, meta in downloaded_metadata.items()
+            ]
 
-        images_to_process = []
-        for url, meta in downloaded_metadata.items():
-             if "error" not in meta and meta.get("filepath") and os.path.exists(meta["filepath"]):
-                 images_to_process.append(meta) # Añadir metadatos completos
-
-        if not images_to_process:
-             logger.info("No se encontraron imágenes descargadas válidas para procesar con API.")
-             return []
-
-        total_images = len(images_to_process)
-        processed_count = 0
-        api_results = []
-        retry_queue = []  # Cola para reintentar imágenes que fallen
+        # Verificar disponibilidad de API con imagen de prueba
+        api_available = self._verify_api_availability()
+        if not api_available:
+            logger.error("API de Gemini no está disponible o la clave API es inválida. Las imágenes no serán procesadas correctamente.")
+            # Devolver errores estructurados para todas las imágenes
+            return [
+                {
+                    "image_filename": meta.get("filename", os.path.basename(meta.get("filepath", "unknown"))),
+                    "processed_date": datetime.today().strftime('%d%m%Y'),
+                    "extracted_text": "",
+                    "error": "API key not valid or service unavailable. Check your API configuration.",
+                    "_cache_error": True,
+                    "_api_configuration_error": True
+                }
+                for url, meta in downloaded_metadata.items()
+            ]
+        
+        # Resto del código sin cambios
         start_time = time.time()
-        batch_start_time = time.time()
-
-        logger.info(f"Iniciando procesamiento con API para {total_images} imágenes...")
-        output_json_path = self.paths.get("image_api_results_json") # Path para guardar resultados API
-
-        # Ordenar imágenes por tamaño (de menor a mayor) para procesar primero las más ligeras
-        # Esto ayuda a evitar timeouts y maximizar el número de imágenes procesadas exitosamente
-        try:
-            sorted_images = sorted(images_to_process, key=lambda x: os.path.getsize(x.get('filepath', '')) if os.path.exists(x.get('filepath', '')) else float('inf'))
-            logger.info(f"Imágenes ordenadas por tamaño para procesamiento óptimo")
-            images_to_process = sorted_images
-        except Exception as e:
-            logger.warning(f"Error al ordenar imágenes por tamaño: {e}. Continuando con orden original.")
-
-        # Procesar todas las imágenes con lotes adaptativos
-        batch_number = 1
-        current_batch = []
-        current_batch_size = 0  # Para rastrear el tamaño del lote actual
-
-        # Procesar imágenes optimizadas por tamaño
-        for img_index, meta in enumerate(images_to_process):
-            # Si el lote está vacío, agregar la primera imagen
-            if not current_batch:
-                current_batch.append(meta)
-                current_batch_size = 1
-                logger.info(f"Iniciando lote #{batch_number} con imagen: {meta.get('filename', 'N/A')}")
-            else:
-                # Si el lote no está lleno, agregar otra imagen
-                if current_batch_size < max_batch_size:
-                    current_batch.append(meta)
-                    current_batch_size += 1
-                    logger.info(f"Agregando imagen {meta.get('filename', 'N/A')} al lote #{batch_number} (tamaño: {current_batch_size})")
+        total_images = len(downloaded_metadata)
+        processed_count = 0
+        
+        # Recuperar configuración de API desde config
+        api_config = self.config.get('api', {})
+        batch_size = int(api_config.get('batch_size', 3))
+        pause_seconds = int(api_config.get('pause_seconds', 60))
+        
+        # Asegurar valores razonables
+        batch_size = max(1, min(batch_size, 5))  # Entre 1 y 5
+        pause_seconds = max(10, min(pause_seconds, 300))  # Entre 10 y 300 segundos
+        
+        logger.info(f"Procesando {total_images} imágenes con API (batch_size={batch_size}, pausa={pause_seconds}s)")
+        api_results = []
+        
+        # Dividir en batches secuenciales para procesamiento adaptativo
+        items = list(downloaded_metadata.items())
+        batch_count = 0
+        
+        # Seguimiento de imágenes que fallaron en primer intento (para reintentar)
+        failed_items = []
+        
+        # Procesar en batches secuenciales
+        while items:
+            batch_count += 1
+            current_batch = items[:batch_size]
+            items = items[batch_size:]
             
-            # Procesar el lote cuando está completo o es la última imagen
-            process_batch = current_batch_size >= max_batch_size or img_index == total_images - 1
+            logger.info(f"Procesando batch {batch_count} ({len(current_batch)} imágenes)")
+            batch_results = []
             
-            if process_batch:
-                logger.info(f"Procesando lote #{batch_number} con {len(current_batch)} imágenes")
-                batch_results = []
-                failed_in_this_batch = []
+            # Procesar cada imagen en el batch
+            for url, meta in current_batch:
+                filepath = meta.get("filepath")
+                filename = meta.get("filename")
                 
-                # Procesar cada imagen en el lote en secuencia para detectar fallos
-                for batch_index, batch_meta in enumerate(current_batch):
-                    result = self._process_single_image_api_with_cache(batch_meta)
+                if not filepath or not os.path.exists(filepath):
+                    logger.warning(f"Archivo no encontrado: {filepath}")
+                    result = {
+                        "image_filename": filename if filename else "unknown",
+                        "processed_date": datetime.today().strftime('%d%m%Y'),
+                        "extracted_text": "",
+                        "error": "File not found",
+                        "_cache_error": True
+                    }
+                else:
+                    logger.info(f"Procesando imagen con API: {filename}")
+                    result = self._process_single_image_api_with_cache(meta)
+                    
+                # Verificar resultado
+                if result.get("error"):
+                    logger.warning(f"Error procesando imagen {filename}: {result.get('error')}")
+                else:
                     processed_count += 1
-                    
-                    if result:
-                        # Verificar si hubo error en el procesamiento
-                        if result.get("error"):
-                            logger.warning(f"Error de API procesando {batch_meta.get('filename', 'N/A')}: {result['error']}")
-                            # Agregar a la cola de reintento solo las imágenes que fallan por primera vez
-                            if batch_meta not in retry_queue and batch_meta not in failed_in_this_batch:
-                                failed_in_this_batch.append(batch_meta)
-                                logger.info(f"Imagen {batch_meta.get('filename', 'N/A')} será reintentada en el siguiente lote")
-                        else:
-                            logger.info(f"[{processed_count}/{total_images}] Procesada imagen con API: {batch_meta.get('filename', 'N/A')}")
-                            batch_results.append(result)
-                            api_results.append(result)
-                    
-                    # Si es la última imagen del lote y falló, no agregar más imágenes a este lote
-                    if batch_index == len(current_batch) - 1 and result and result.get("error"):
-                        logger.warning(f"Última imagen del lote #{batch_number} falló. Se intentará en el próximo lote.")
+                    logger.info(f"Imagen procesada exitosamente: {filename}")
                 
-                # Verificar y mostrar progreso
-                batch_duration = time.time() - batch_start_time
-                logger.info(f"Lote #{batch_number} completado en {batch_duration:.2f} seg. ({len(batch_results)} imágenes exitosas de {len(current_batch)})")
+                # Añadir a resultados
+                result["url"] = url
+                batch_results.append(result)
                 
-                # Agregar las imágenes fallidas a la cola de reintento
-                retry_queue.extend(failed_in_this_batch)
+                # Opcional: pequeña pausa entre imágenes del mismo batch
+                time.sleep(random.uniform(2, 5))
+            
+            # Añadir resultados del batch
+            api_results.extend(batch_results)
+            
+            # Verificar si hay más batches o reintentos pendientes
+            is_last_batch = not items and not failed_items
+            
+            if not is_last_batch:
+                wait_time = pause_seconds
+                logger.info(f"Pausa de {wait_time}s antes del siguiente batch...")
+                time.sleep(wait_time)
                 
-                # Pausa antes del siguiente lote
-                if img_index < total_images - 1 or retry_queue:
-                    logger.info(f"Pausa de {pause_seconds} segundos antes del próximo lote...")
-                    time.sleep(pause_seconds)
+                # Si no hay más items pero hay fallos, procesar reintentos
+                if not items and failed_items:
+                    logger.info(f"Reintentando {len(failed_items)} imágenes que fallaron...")
+                    items = failed_items
+                    failed_items = []
+        
+        # Guardar resultados en archivo JSON
+        output_json_path = self.paths.get("image_api_results_json")
+        if output_json_path:
+            # Eliminar las URLs de resultados finales (no son necesarias en el archivo)
+            clean_results = []
+            for res in api_results:
+                res_copy = res.copy()
+                if "url" in res_copy:
+                    del res_copy["url"]
+                clean_results.append(res_copy)
                 
-                # Preparar el siguiente lote
-                current_batch = []
-                current_batch_size = 0
-                batch_number += 1
-                batch_start_time = time.time()
-                
-                # Si hay imágenes para reintentar, procesarlas en el siguiente lote
-                if retry_queue:
-                    # Solo tomar hasta max_batch_size imágenes para reintentar
-                    images_to_retry = retry_queue[:max_batch_size]
-                    retry_queue = []  # Limpiar la cola (solo un reintento)
-                    
-                    logger.info(f"Procesando lote #{batch_number} con {len(images_to_retry)} imágenes para reintento")
-                    
-                    batch_results = []
-                    for batch_meta in images_to_retry:
-                        logger.info(f"Reintentando imagen: {batch_meta.get('filename', 'N/A')}")
-                        result = self._process_single_image_api_with_cache(batch_meta)
-                        
-                        if result:
-                            if result.get("error"):
-                                logger.warning(f"Error en reintento de {batch_meta.get('filename', 'N/A')}: {result['error']}")
-                                # Añadimos el resultado aunque tenga error para tener registro completo
-                                batch_results.append(result)
-                                api_results.append(result)
-                            else:
-                                logger.info(f"Reintento exitoso para imagen: {batch_meta.get('filename', 'N/A')}")
-                                batch_results.append(result)
-                                api_results.append(result)
-                    
-                    # Mostrar resultados del reintento
-                    batch_duration = time.time() - batch_start_time
-                    logger.info(f"Lote de reintento #{batch_number} completado en {batch_duration:.2f} seg. ({len(batch_results)} imágenes)")
-                    
-                    # Pausa después del lote de reintento si quedan más imágenes
-                    if img_index < total_images - 1:
-                        logger.info(f"Pausa de {pause_seconds} segundos antes del próximo lote regular...")
-                        time.sleep(pause_seconds)
-                    
-                    # Preparar para el siguiente lote regular
-                    batch_number += 1
-                    batch_start_time = time.time()
-
-        # Guardar los resultados de la API
-        if output_json_path and api_results:
-             save_to_json(api_results, output_json_path)
-             logger.info(f"Resultados de API guardados en: {output_json_path}")
+            save_to_json(clean_results, output_json_path)
+            logger.info(f"Resultados de API guardados en: {output_json_path}")
         else:
               logger.warning("No se especificó ruta para guardar resultados de la API de imágenes o no hay resultados.")
 
@@ -575,6 +558,79 @@ class ImageProcessor:
         logger.info(f"Procesamiento API completado para {processed_count}/{total_images} imágenes en {end_time - start_time:.2f} segundos.")
 
         return api_results
+        
+    def _verify_api_availability(self):
+        """
+        Verifica que la API de Gemini esté disponible con una pequeña imagen de prueba.
+        Esto detecta problemas de configuración de API antes de procesar todas las imágenes.
+        
+        Returns:
+            bool: True si la API está disponible, False si no
+        """
+        if not self.api_client:
+            logger.error("Cliente API no inicializado")
+            return False
+            
+        try:
+            # Crear una pequeña imagen de prueba en memoria
+            from PIL import Image, ImageDraw
+            import tempfile
+            
+            # Crear imagen temporal de prueba
+            temp_img = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False)
+            temp_path = temp_img.name
+            temp_img.close()
+            
+            try:
+                # Crear una imagen simple de 100x100 píxeles
+                img = Image.new('RGB', (100, 100), color=(255, 255, 255))
+                draw = ImageDraw.Draw(img)
+                draw.text((10, 40), "TEST", fill=(0, 0, 0))
+                img.save(temp_path)
+                
+                # Intentar procesar la imagen de prueba
+                test_result = self.api_client.extract_text_from_image(temp_path)
+                
+                # Verificar el resultado
+                if test_result.get("error"):
+                    if "API key not valid" in str(test_result.get("error")):
+                        logger.error("Error de API key inválida: " + str(test_result.get("error")))
+                        return False
+                    else:
+                        logger.warning(f"Error en prueba de API, pero no parece ser de configuración: {test_result.get('error')}")
+                        return True  # Continuamos porque podría ser un error específico de la imagen
+                return True
+            finally:
+                # Limpiar archivo temporal
+                try:
+                    if os.path.exists(temp_path):
+                        os.unlink(temp_path)
+                except Exception:
+                    pass
+                    
+        except Exception as e:
+            logger.error(f"Error verificando disponibilidad de API: {e}")
+            return False
+    
+    def check_results_have_only_errors(self, results):
+        """
+        Verifica si un conjunto de resultados de API contiene solo errores.
+        
+        Args:
+            results (list): Lista de resultados de API
+            
+        Returns:
+            tuple: (solo_errores, errores_api_key)
+                - solo_errores: True si todos los resultados contienen errores
+                - errores_api_key: True si hay errores específicos de API key
+        """
+        if not results:
+            return False, False
+            
+        all_have_errors = all('error' in result for result in results)
+        api_key_errors = any("API key not valid" in str(result.get('error', '')) for result in results)
+        
+        return all_have_errors, api_key_errors
 
     def _process_single_image_api_with_cache(self, image_meta):
          """

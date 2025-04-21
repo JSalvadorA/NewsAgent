@@ -103,7 +103,17 @@ class HistoryTracker:
          cuya 'URL' no está en el historial.
          
          Si se proporciona current_date, usa un filtrado inteligente por fecha.
+         
+         Si IGNORAR_HISTORIAL está establecido en el entorno, devuelve todas las URLs.
          """
+         # Verificar si debemos ignorar el historial (para forzar reprocesamiento)
+         import os
+         ignorar_historial = os.environ.get("IGNORAR_HISTORIAL", "").lower() == "true"
+         
+         if ignorar_historial:
+             logger.info("MODO REPROCESAMIENTO: Ignorando historial de URLs procesadas - procesando todas las URLs")
+             return links_list
+             
          # Si tenemos una fecha actual, intentamos un filtrado inteligente
          if current_date:
              # Solo considerar como procesadas las URLs que coinciden con la fecha actual

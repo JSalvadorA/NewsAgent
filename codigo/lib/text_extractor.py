@@ -1,50 +1,3 @@
-def filter_pdf_sections(pdf_text_data):
-    """
-    Filtra secciones no deseadas del texto extraído del PDF.
-    Elimina información de correo Gmail, encabezados estándar CONTENIDO_INICIAL y URLs de Google Mail.
-    
-    Args:
-        pdf_text_data (dict): Datos extraídos del PDF con secciones y metadatos
-        
-    Returns:
-        dict: Datos filtrados sin las secciones no deseadas
-    """
-    filtered_data = pdf_text_data.copy()  # Copiar para no modificar el original
-    
-    # 1. Remover sección CONTENIDO_INICIAL completa
-    if "CONTENIDO_INICIAL" in filtered_data:
-        logger.info(f"Eliminando sección CONTENIDO_INICIAL con {len(filtered_data['CONTENIDO_INICIAL'])} entradas")
-        del filtered_data["CONTENIDO_INICIAL"]
-    
-    # 2. Remover metadatos de Gmail en otras secciones
-    sections_to_process = [key for key in filtered_data.keys()]
-    
-    for section_key in sections_to_process:
-        if not isinstance(filtered_data[section_key], list):
-            continue
-            
-        # Filtrar entradas en cada sección
-        filtered_entries = []
-        for entry in filtered_data[section_key]:
-            # Saltarse entradas que contengan URLs de Gmail
-            url = entry.get("metadata", {}).get("url", "")
-            text = entry.get("text", "")
-            
-            # Criterios para excluir
-            is_gmail = "Gmail" in text or "gmail.com" in url.lower() or "Google Mail" in text
-            is_mail_link = url.startswith("https://mail.google.com")
-            is_empty_url = not url and ("RV:" in text or "FW:" in text or "Fwd:" in text)
-            
-            # Si no cumple ningún criterio de exclusión, mantener la entrada
-            if not (is_gmail or is_mail_link or is_empty_url):
-                filtered_entries.append(entry)
-        
-        # Actualizar sección con entradas filtradas
-        if len(filtered_entries) < len(filtered_data[section_key]):
-            logger.info(f"Sección {section_key}: Filtradas {len(filtered_data[section_key]) - len(filtered_entries)} entradas")
-        filtered_data[section_key] = filtered_entries
-    
-    return filtered_data# codigo/lib/text_extractor.py
 """
 Módulo para la extracción de texto estructurado de PDFs.
 Se encarga de identificar cabeceras y párrafos, y organizar la información en un formato JSON estructurado.
@@ -57,6 +10,11 @@ import json
 import re
 from datetime import datetime
 import unicodedata
+import sys
+from typing import Dict, List, Tuple, Optional, Union, Any
+
+# Importar las utilidades para verificar dependencias
+from .utils import check_dependency, check_tesseract_installed, get_tesseract_languages
 
 logger = logging.getLogger(__name__)
 
@@ -176,10 +134,93 @@ def generate_brief_description(text, max_words=5):
     
     return " ".join(words[:max_words]) + "..."
 
+def filter_pdf_sections(pdf_text_data):
+    """
+    Filtra secciones no deseadas del texto extraído del PDF.
+    Elimina información de correo Gmail, encabezados estándar CONTENIDO_INICIAL,
+    URLs de Google Mail, archivos adjuntos, imágenes y disclaimers.
+    
+    Args:
+        pdf_text_data (dict): Datos extraídos del PDF con secciones y metadatos
+        
+    Returns:
+        dict: Datos filtrados sin las secciones no deseadas
+    """
+    filtered_data = pdf_text_data.copy()  # Copiar para no modificar el original
+    
+    # 1. Remover sección CONTENIDO_INICIAL completa
+    if "CONTENIDO_INICIAL" in filtered_data:
+        logger.info(f"Eliminando sección CONTENIDO_INICIAL con {len(filtered_data['CONTENIDO_INICIAL'])} entradas")
+        del filtered_data["CONTENIDO_INICIAL"]
+    
+    # 2. Remover metadatos de Gmail en otras secciones
+    sections_to_process = [key for key in filtered_data.keys()]
+    
+    # Patrones para filtrar entradas no deseadas
+    exclusion_patterns = [
+        # Patrones de correo
+        r'RV:\s', r'FW:\s', r'Fwd:\s', r'Gmail', r'google\.com',
+        # Patrones de archivos adjuntos
+        r'\d+\s+archivos?\s+adjuntos?', r'image\d+\.\w{3}\s+\d+K',
+        # Patrones de imágenes
+        r'^image\d+\.\w{3}', 
+        # Patrones de notas de confidencialidad
+        r'Pensemos en el medio ambiente', r'NOTA DE CONFIDENCIALIDAD', 
+        r'antes de imprimir este documento'
+    ]
+    
+    for section_key in sections_to_process:
+        if not isinstance(filtered_data[section_key], list):
+            continue
+            
+        # Filtrar entradas en cada sección
+        filtered_entries = []
+        for entry in filtered_data[section_key]:
+            # Extraer URL y texto para la evaluación
+            url = entry.get("metadata", {}).get("url", "")
+            text = entry.get("text", "")
+            
+            # Verificar si contiene alguno de los patrones a excluir
+            should_exclude = False
+            
+            # Criterios para excluir basados en URL
+            is_mail_link = url.startswith("https://mail.google.com")
+            is_empty_url = not url
+            
+            # Si es una URL de correo, excluir directamente
+            if is_mail_link:
+                should_exclude = True
+            # Si no tiene URL, verificar patrones en el texto
+            elif is_empty_url:
+                # Verificar cada patrón de exclusión
+                for pattern in exclusion_patterns:
+                    if re.search(pattern, text, re.IGNORECASE):
+                        should_exclude = True
+                        break
+                        
+                # Casos específicos adicionales basados en ejemplos exactos
+                if text.strip() in [
+                    "3 archivos adjuntos", 
+                    "image013.jpg 1K", 
+                    "image001.jpg 17K"
+                ]:
+                    should_exclude = True
+            
+            # Si no se debe excluir, mantener la entrada
+            if not should_exclude:
+                filtered_entries.append(entry)
+        
+        # Actualizar sección con entradas filtradas
+        if len(filtered_entries) < len(filtered_data[section_key]):
+            logger.info(f"Sección {section_key}: Filtradas {len(filtered_data[section_key]) - len(filtered_entries)} entradas")
+        filtered_data[section_key] = filtered_entries
+    
+    return filtered_data
+
 def extract_text_by_sections(pdf_path):
     """
     Extrae texto del PDF organizándolo por secciones (cabeceras) y párrafos.
-    Excluye párrafos que contienen correos electrónicos.
+    Incluye OCR para PDFs escaneados que no tienen texto extraíble.
     
     Returns:
         dict: Diccionario con la estructura de secciones y párrafos
@@ -201,6 +242,26 @@ def extract_text_by_sections(pdf_path):
         doc = fitz.open(pdf_path)
         logger.info(f"Abriendo PDF para extracción de texto: {pdf_path} ({doc.page_count} páginas)")
         
+        # Variables para detectar si es un PDF escaneado
+        total_text_length = 0
+        needs_ocr = False
+        
+        # Primera pasada: Intentar extraer texto normal
+        for page_num in range(min(doc.page_count, 3)):  # Revisar primeras 3 páginas
+            page = doc.load_page(page_num)
+            page_text = page.get_text("text")
+            total_text_length += len(page_text)
+        
+        # Si no hay suficiente texto en las primeras páginas, probablemente es un PDF escaneado
+        if total_text_length < 500:  # Umbral arbitrario para detectar PDF escaneado
+            logger.warning(f"PDF {pdf_path} parece ser un documento escaneado con poco texto (encontrados {total_text_length} caracteres). Intentando OCR...")
+            needs_ocr = True
+        
+        # Procesar con OCR si es necesario
+        if needs_ocr:
+            return extract_text_with_ocr(pdf_path)
+        
+        # Extracción normal si no necesita OCR
         for page_num in range(doc.page_count):
             page = doc.load_page(page_num)
             
@@ -268,7 +329,269 @@ def extract_text_by_sections(pdf_path):
     
     except Exception as e:
         logger.error(f"Error al extraer texto del PDF '{pdf_path}': {e}", exc_info=True)
-        return {}
+        # Intentar con OCR como fallback si falla la extracción normal
+        logger.info(f"Intentando OCR como fallback para {pdf_path}")
+        try:
+            return extract_text_with_ocr(pdf_path)
+        except Exception as ocr_e:
+            logger.error(f"Error también en OCR para '{pdf_path}': {ocr_e}", exc_info=True)
+            return {}
+
+def extract_text_with_ocr(pdf_path: str, output_path: Optional[str] = None, 
+                         dpi: int = 300, language: str = 'spa', 
+                         use_gpu: bool = False) -> Dict[str, Any]:
+    """
+    Extrae texto de un PDF escaneado utilizando OCR con Tesseract.
+    
+    Args:
+        pdf_path: Ruta al archivo PDF
+        output_path: Ruta donde se guardará el JSON con el texto extraído, si no se proporciona no se guarda
+        dpi: Resolución en DPI para la conversión de PDF a imagen
+        language: Código de idioma para Tesseract OCR
+        use_gpu: Si se debe usar GPU para el procesamiento OCR (si está disponible)
+        
+    Returns:
+        Dict con el texto extraído organizado por secciones
+    """
+    result = {
+        "success": False,
+        "sections": [],
+        "error": None,
+        "metadata": {
+            "filename": os.path.basename(pdf_path),
+            "pages_processed": 0,
+            "extraction_date": datetime.datetime.now().isoformat(),
+            "extraction_method": "ocr"
+        }
+    }
+    
+    # Verificar que el archivo existe
+    if not os.path.exists(pdf_path):
+        error_msg = f"El archivo PDF no existe: {pdf_path}"
+        logger.error(error_msg)
+        result["error"] = error_msg
+        return result
+    
+    # Verificar dependencias necesarias
+    missing_deps = []
+    
+    # Verificar PyMuPDF
+    if not check_dependency("fitz", "PyMuPDF"):
+        missing_deps.append("PyMuPDF")
+    
+    # Verificar pytesseract
+    if not check_dependency("pytesseract"):
+        missing_deps.append("pytesseract")
+    
+    # Verificar Pillow
+    if not check_dependency("PIL", "Pillow"):
+        missing_deps.append("Pillow")
+    
+    # Si faltan dependencias, reportar el error
+    if missing_deps:
+        dep_str = ", ".join(missing_deps)
+        error_msg = f"Faltan dependencias para OCR: {dep_str}. Instálelas con: pip install {' '.join(missing_deps)}"
+        logger.error(error_msg)
+        result["error"] = error_msg
+        return result
+    
+    # Verificar que Tesseract está instalado
+    tesseract_installed, tesseract_info = check_tesseract_installed()
+    if not tesseract_installed:
+        error_msg = f"Tesseract OCR no está instalado. {tesseract_info}"
+        logger.error(error_msg)
+        result["error"] = error_msg
+        return result
+    else:
+        logger.info(f"Usando Tesseract OCR: {tesseract_info}")
+        
+    # Verificar idioma disponible
+    available_languages = get_tesseract_languages()
+    if language not in available_languages:
+        lang_warning = f"El idioma '{language}' no está disponible en Tesseract. Idiomas disponibles: {', '.join(available_languages[:5])}"
+        if 'eng' in available_languages:
+            language = 'eng'
+            lang_warning += f". Usando 'eng' como alternativa."
+        elif available_languages:
+            language = available_languages[0]
+            lang_warning += f". Usando '{language}' como alternativa."
+        logger.warning(lang_warning)
+    
+    # Ahora que se han verificado todas las dependencias, importamos los módulos
+    import fitz
+    import pytesseract
+    from PIL import Image
+    import io
+    
+    # Configurar pytesseract
+    if tesseract_installed and tesseract_info != 'tesseract':
+        pytesseract.pytesseract.tesseract_cmd = tesseract_info
+    
+    # Configurar opciones de OCR
+    config = f"--oem 1 --psm 3"
+    if use_gpu:
+        # Tesseract 5+ soporta GPU con OpenCL
+        config += " --opencl"
+    
+    try:
+        # Abrir el documento PDF
+        doc = fitz.open(pdf_path)
+        num_pages = doc.page_count
+        
+        if num_pages == 0:
+            error_msg = f"El PDF no contiene páginas: {pdf_path}"
+            logger.error(error_msg)
+            result["error"] = error_msg
+            return result
+        
+        logger.info(f"Procesando PDF con OCR: {pdf_path} ({num_pages} páginas)")
+        
+        # Estructura para organizar el texto extraído
+        extracted_sections = {}
+        current_section = "CONTENIDO_PRINCIPAL"
+        extracted_sections[current_section] = []
+        
+        # Procesar cada página
+        for page_num in range(num_pages):
+            try:
+                logger.debug(f"Procesando página {page_num + 1}/{num_pages} con OCR...")
+                page = doc.load_page(page_num)
+                
+                # Convertir página a imagen con la resolución especificada
+                pix = page.get_pixmap(matrix=fitz.Matrix(dpi/72, dpi/72))
+                img_bytes = pix.tobytes("png")
+                
+                # Abrir la imagen con PIL
+                img = Image.open(io.BytesIO(img_bytes))
+                
+                # Ejecutar OCR
+                config_with_lang = f"{config} -l {language}"
+                page_text = pytesseract.image_to_string(img, config=config_with_lang)
+                
+                if not page_text.strip():
+                    logger.warning(f"No se pudo extraer texto de la página {page_num + 1}")
+                    continue
+                
+                # Procesar el texto extraído
+                lines = page_text.split('\n')
+                current_paragraph = ""
+                
+                for line in lines:
+                    line = line.strip()
+                    
+                    # Saltar líneas vacías
+                    if not line:
+                        if current_paragraph:
+                            clean_text = clean_paragraph(current_paragraph)
+                            if clean_text and len(clean_text) > 10 and not contains_email(clean_text):
+                                # Añadir párrafo a la sección actual
+                                urls = find_urls_in_text(clean_text)
+                                paragraph = {
+                                    "metadata": {
+                                        "description": generate_brief_description(clean_text),
+                                        "url": urls[0] if urls else ""
+                                    },
+                                    "text": clean_text,
+                                    "page": page_num + 1
+                                }
+                                extracted_sections[current_section].append(paragraph)
+                            current_paragraph = ""
+                        continue
+                    
+                    # Comprobar si es una cabecera
+                    if is_likely_header(line):
+                        # Guardar el párrafo actual antes de cambiar de sección
+                        if current_paragraph:
+                            clean_text = clean_paragraph(current_paragraph)
+                            if clean_text and len(clean_text) > 10 and not contains_email(clean_text):
+                                urls = find_urls_in_text(clean_text)
+                                paragraph = {
+                                    "metadata": {
+                                        "description": generate_brief_description(clean_text),
+                                        "url": urls[0] if urls else ""
+                                    },
+                                    "text": clean_text,
+                                    "page": page_num + 1
+                                }
+                                extracted_sections[current_section].append(paragraph)
+                            current_paragraph = ""
+                        
+                        # Crear nueva sección
+                        normalized_header = normalize_text(line).upper()
+                        
+                        # Verificar si coincide con una cabecera conocida
+                        for known_header in KNOWN_HEADERS:
+                            if normalized_header == normalize_text(known_header).upper():
+                                current_section = known_header
+                                break
+                        else:
+                            # Si no coincide con ninguna cabecera conocida, usar el texto como sección
+                            current_section = line
+                        
+                        # Inicializar sección si no existe
+                        if current_section not in extracted_sections:
+                            extracted_sections[current_section] = []
+                            logger.debug(f"Nueva sección detectada: '{current_section}'")
+                    else:
+                        # Añadir línea al párrafo actual
+                        if current_paragraph:
+                            current_paragraph += " " + line
+                        else:
+                            current_paragraph = line
+                
+                # Procesar último párrafo de la página
+                if current_paragraph:
+                    clean_text = clean_paragraph(current_paragraph)
+                    if clean_text and len(clean_text) > 10 and not contains_email(clean_text):
+                        urls = find_urls_in_text(clean_text)
+                        paragraph = {
+                            "metadata": {
+                                "description": generate_brief_description(clean_text),
+                                "url": urls[0] if urls else ""
+                            },
+                            "text": clean_text,
+                            "page": page_num + 1
+                        }
+                        extracted_sections[current_section].append(paragraph)
+                
+                # Actualizar metadatos
+                result["metadata"]["pages_processed"] += 1
+                
+            except Exception as e:
+                logger.error(f"Error procesando OCR en página {page_num + 1}: {str(e)}")
+        
+        # Cerrar el documento PDF
+        doc.close()
+        
+        # Eliminar secciones vacías
+        extracted_sections = {k: v for k, v in extracted_sections.items() if v}
+        
+        # Actualizar resultado
+        result["sections"] = extracted_sections
+        result["success"] = True
+        
+        # Filtrar secciones no deseadas
+        filtered_sections = filter_pdf_sections(extracted_sections)
+        result["sections"] = filtered_sections
+        
+        # Guardar en archivo si se ha proporcionado una ruta
+        if output_path:
+            try:
+                os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    json.dump(result, f, ensure_ascii=False, indent=2)
+                logger.info(f"Texto extraído guardado en: {output_path}")
+            except Exception as e:
+                logger.error(f"Error al guardar resultado OCR: {str(e)}")
+        
+        logger.info(f"OCR completado: {len(result['sections'])} secciones, {sum(len(v) for v in result['sections'].values())} párrafos")
+        return result
+        
+    except Exception as e:
+        error_msg = f"Error en extracción OCR: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        result["error"] = error_msg
+        return result
 
 def extract_and_save_pdf_text(pdf_path, date_str=None):
     """
@@ -282,7 +605,7 @@ def extract_and_save_pdf_text(pdf_path, date_str=None):
         tuple: (éxito, ruta del archivo JSON generado o None si hubo error)
     """
     if not date_str:
-        date_str = datetime.today().strftime('%d%m%Y')
+        date_str = datetime.datetime.today().strftime('%d%m%Y')
     
     try:
         # Extraer texto por secciones

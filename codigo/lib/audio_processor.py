@@ -8,6 +8,7 @@ import json
 from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+import re
 
 # Importar utilidades locales
 from .cache_utils import get_cache_key, load_from_cache, save_to_cache
@@ -337,7 +338,7 @@ class AudioProcessor:
     def _transcribe_with_available_tool(self, audio_path):
         """
         Intenta transcribir un archivo de audio usando las herramientas disponibles.
-        Prueba con Whisper, Google Speech-to-Text u otras herramientas si están instaladas.
+        Usa un enfoque adaptativo que prueba diferentes métodos locales.
         
         Args:
             audio_path: Ruta al archivo de audio a transcribir
@@ -346,95 +347,299 @@ class AudioProcessor:
             dict: Diccionario con la transcripción y metadatos adicionales,
                  o None si no hay herramientas disponibles
         """
-        # Método 1: Whisper (OpenAI) - la mejor opción cuando está disponible
+        # Método 1: Whisper Local (versión mejorada para ejecución local)
         try:
+            # Primero intentamos con la versión más reciente de Whisper que usa torch
+            import torch
             import whisper
-            logger.info(f"Transcribiendo {os.path.basename(audio_path)} con Whisper...")
+            logger.info(f"Transcribiendo {os.path.basename(audio_path)} con Whisper local...")
             
-            # Cargar modelo (tiny, base, small, medium, large)
-            model = whisper.load_model("base")
+            # Detectar si hay GPU disponible para acelerar el procesamiento
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            logger.info(f"Usando dispositivo {device} para transcripción")
             
-            # Transcribir
-            result = model.transcribe(audio_path)
+            # Seleccionar modelo según tamaño del archivo
+            file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
+            
+            # Elegir modelo según tamaño para equilibrar velocidad y precisión
+            if file_size_mb < 3:
+                model_size = "tiny"  # Más rápido para archivos pequeños
+            elif file_size_mb < 10:
+                model_size = "base"  # Bueno para archivos medianos
+            else:
+                model_size = "small"  # Mejor para archivos más grandes
+                
+            logger.info(f"Usando modelo '{model_size}' para archivo de {file_size_mb:.2f}MB")
+            
+            # Cargar modelo
+            model = whisper.load_model(model_size, device=device)
+            
+            # Transcribir con detección automática de idioma
+            result = model.transcribe(audio_path, language="es", fp16=torch.cuda.is_available())
+            
+            # Guardar segmentos si existen
+            segments = []
+            if "segments" in result:
+                for segment in result["segments"]:
+                    segments.append({
+                        "start": segment.get("start", 0),
+                        "end": segment.get("end", 0),
+                        "text": segment.get("text", "")
+                    })
             
             return {
                 "text": result["text"],
-                "segments": result.get("segments", []),
+                "segments": segments,
                 "language": result.get("language", "es"),
-                "tool": "whisper"
+                "tool": "whisper_local"
             }
-        except ImportError:
-            logger.debug("Whisper no disponible")
-        except Exception as e:
-            logger.warning(f"Error al transcribir con Whisper: {e}")
-        
-        # Método 2: Google Speech-to-Text (requiere API key)
-        try:
-            from google.cloud import speech
             
-            # Verificar si hay credenciales disponibles
-            if os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
-                logger.info(f"Transcribiendo {os.path.basename(audio_path)} con Google Speech-to-Text...")
+        except ImportError:
+            logger.debug("Whisper con PyTorch no disponible, intentando método alternativo")
+        except Exception as e:
+            logger.warning(f"Error al transcribir con Whisper local: {e}")
+        
+        # Método 2: Alternativa con Faster Whisper (más eficiente en CPU)
+        try:
+            from faster_whisper import WhisperModel
+            logger.info(f"Transcribiendo {os.path.basename(audio_path)} con Faster Whisper...")
+            
+            # Seleccionar modelo según tamaño del archivo
+            file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
+            
+            if file_size_mb < 5:
+                model_size = "tiny"
+            elif file_size_mb < 15:
+                model_size = "base"
+            else:
+                model_size = "small"
                 
-                client = speech.SpeechClient()
+            logger.info(f"Usando modelo '{model_size}' para archivo de {file_size_mb:.2f}MB")
+            
+            # Cargar modelo optimizado para CPU
+            model = WhisperModel(model_size, device="cpu", compute_type="int8")
+            
+            # Transcribir
+            segments, info = model.transcribe(audio_path, language="es", beam_size=5)
+            
+            # Recopilar resultados
+            full_text = ""
+            segments_data = []
+            
+            for segment in segments:
+                full_text += segment.text + " "
+                segments_data.append({
+                    "start": segment.start,
+                    "end": segment.end,
+                    "text": segment.text
+                })
+            
+            return {
+                "text": full_text.strip(),
+                "segments": segments_data,
+                "language": info.language,
+                "tool": "faster_whisper"
+            }
+            
+        except ImportError:
+            logger.debug("Faster Whisper no disponible")
+        except Exception as e:
+            logger.warning(f"Error al transcribir con Faster Whisper: {e}")
+        
+        # Método 3: Vosk (alternativa ligera para reconocimiento offline)
+        try:
+            from vosk import Model, KaldiRecognizer
+            import wave
+            import json as json_lib
+            
+            logger.info(f"Transcribiendo {os.path.basename(audio_path)} con Vosk...")
+            
+            # Verificar si el modelo existe en la carpeta predeterminada
+            model_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 
+                                      "models", "vosk-model-small-es")
+            
+            if not os.path.exists(model_path):
+                logger.warning(f"Modelo Vosk no encontrado en {model_path}")
+                # Intentar buscar en otras ubicaciones comunes
+                alt_paths = [
+                    os.path.join(os.path.expanduser("~"), "models", "vosk-model-small-es"),
+                    os.path.join(os.getcwd(), "models", "vosk-model-small-es")
+                ]
                 
-                # Leer archivo
-                with open(audio_path, "rb") as audio_file:
-                    content = audio_file.read()
+                for alt_path in alt_paths:
+                    if os.path.exists(alt_path):
+                        model_path = alt_path
+                        logger.info(f"Modelo Vosk encontrado en {model_path}")
+                        break
+                else:
+                    logger.warning("Modelo Vosk no encontrado. Descárgalo de https://alphacephei.com/vosk/models")
+                    raise FileNotFoundError("Modelo Vosk no encontrado")
+            
+            # Cargar el modelo
+            model = Model(model_path)
+            
+            # Preparar archivo de audio (convertir a formato compatible si es necesario)
+            temp_wav_path = None
+            try:
+                # Verificar si es WAV con formato compatible
+                if audio_path.lower().endswith('.wav'):
+                    wav_file = wave.open(audio_path, "rb")
+                    if wav_file.getnchannels() != 1 or wav_file.getsampwidth() != 2 or wav_file.getframerate() != 16000:
+                        # Necesita conversión
+                        need_conversion = True
+                    else:
+                        need_conversion = False
+                    wav_file.close()
+                else:
+                    # No es WAV, necesita conversión
+                    need_conversion = True
                 
-                audio = speech.RecognitionAudio(content=content)
-                config = speech.RecognitionConfig(
-                    encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-                    sample_rate_hertz=16000,
-                    language_code="es-ES",  # Ajustar según necesidades
-                    enable_automatic_punctuation=True
-                )
+                # Convertir si es necesario
+                if need_conversion:
+                    import subprocess
+                    temp_wav_path = audio_path + "_temp.wav"
+                    # Usar ffmpeg para convertir a formato compatible con Vosk
+                    subprocess.run(["ffmpeg", "-i", audio_path, "-ar", "16000", "-ac", "1", "-f", "wav", temp_wav_path], 
+                                   check=True, capture_output=True)
+                    wav_path = temp_wav_path
+                else:
+                    wav_path = audio_path
                 
                 # Transcribir
-                response = client.recognize(config=config, audio=audio)
+                wf = wave.open(wav_path, "rb")
+                rec = KaldiRecognizer(model, wf.getframerate())
+                rec.SetWords(True)
                 
-                # Extraer transcripción
-                full_text = ""
-                for result in response.results:
-                    full_text += result.alternatives[0].transcript + " "
+                transcription = ""
+                while True:
+                    data = wf.readframes(4000)
+                    if len(data) == 0:
+                        break
+                    if rec.AcceptWaveform(data):
+                        result = json_lib.loads(rec.Result())
+                        transcription += result.get("text", "") + " "
+                
+                # Obtener resultado final
+                final_result = json_lib.loads(rec.FinalResult())
+                transcription += final_result.get("text", "")
+                
+                # Limpiar archivo temporal si se creó
+                if temp_wav_path and os.path.exists(temp_wav_path):
+                    os.unlink(temp_wav_path)
                 
                 return {
-                    "text": full_text.strip(),
-                    "tool": "google_speech"
+                    "text": transcription.strip(),
+                    "tool": "vosk"
                 }
-            else:
-                logger.debug("Credenciales de Google no configuradas")
+                
+            except Exception as inner_e:
+                logger.warning(f"Error procesando audio con Vosk: {inner_e}")
+                # Limpiar archivo temporal si existe
+                if temp_wav_path and os.path.exists(temp_wav_path):
+                    try:
+                        os.unlink(temp_wav_path)
+                    except:
+                        pass
+                raise
+                
         except ImportError:
-            logger.debug("Google Speech-to-Text no disponible")
+            logger.debug("Vosk no disponible")
         except Exception as e:
-            logger.warning(f"Error al transcribir con Google Speech-to-Text: {e}")
+            logger.warning(f"Error al transcribir con Vosk: {e}")
         
-        # Método 3: SpeechRecognition con reconocedor local (vosk/sphinx)
+        # Método 4: SpeechRecognition (fallback final)
         try:
             import speech_recognition as sr
             recognizer = sr.Recognizer()
             
-            logger.info(f"Transcribiendo {os.path.basename(audio_path)} con reconocedor local...")
+            logger.info(f"Transcribiendo {os.path.basename(audio_path)} con SpeechRecognition...")
             
-            # Convertir archivo a formato compatible si es necesario
-            with sr.AudioFile(audio_path) as source:
-                audio_data = recognizer.record(source)
+            # Verificar extensión y convertir si es necesario
+            audio_format = audio_path.lower().split('.')[-1]
+            temp_wav_path = None
+            
+            if audio_format not in ['wav']:
+                # Convertir a WAV usando ffmpeg
+                try:
+                    import subprocess
+                    temp_wav_path = audio_path + ".wav"
+                    subprocess.run(["ffmpeg", "-i", audio_path, temp_wav_path], 
+                                  check=True, capture_output=True)
+                    audio_path_to_use = temp_wav_path
+                except Exception as conv_e:
+                    logger.warning(f"Error convirtiendo audio a WAV: {conv_e}")
+                    raise
+            else:
+                audio_path_to_use = audio_path
+            
+            try:
+                # Cargar el audio
+                with sr.AudioFile(audio_path_to_use) as source:
+                    audio_data = recognizer.record(source)
+                    
+                    # Intentar primero con reconocimiento local (sphinx)
+                    text = recognizer.recognize_sphinx(audio_data, language='es-ES')
+                    
+                    # Limpiar archivo temporal si se creó
+                    if temp_wav_path and os.path.exists(temp_wav_path):
+                        os.unlink(temp_wav_path)
+                    
+                    return {
+                        "text": text,
+                        "tool": "sphinx"
+                    }
+            finally:
+                # Asegurar limpieza del archivo temporal
+                if temp_wav_path and os.path.exists(temp_wav_path):
+                    try:
+                        os.unlink(temp_wav_path)
+                    except:
+                        pass
                 
-                # Intentar con reconocedor local (sphinx)
-                text = recognizer.recognize_sphinx(audio_data)
-                
-                return {
-                    "text": text,
-                    "tool": "sphinx"
-                }
         except ImportError:
             logger.debug("Speech Recognition no disponible")
         except Exception as e:
             logger.warning(f"Error al transcribir con reconocedor local: {e}")
         
+        # Método 5: Transcripción básica con ffmpeg (último recurso)
+        try:
+            import subprocess
+            import tempfile
+            
+            logger.info(f"Intentando extracción básica de metadatos con ffmpeg para {os.path.basename(audio_path)}")
+            
+            # Obtener información básica con ffmpeg
+            result = subprocess.run(
+                ["ffmpeg", "-i", audio_path, "-f", "null", "-"],
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False
+            )
+            
+            # Extraer información de duración y formato
+            output = result.stderr
+            duration_match = re.search(r'Duration: (\d{2}):(\d{2}):(\d{2}\.\d{2})', output)
+            audio_info = "Información no disponible"
+            
+            if duration_match:
+                hours, minutes, seconds = duration_match.groups()
+                audio_info = f"Audio de {hours}h:{minutes}m:{seconds}s"
+            
+            # Generar un mensaje informativo en lugar de transcripción
+            return {
+                "text": f"[Este es un archivo de audio. {audio_info}. No se pudo transcribir automáticamente.]",
+                "tool": "ffmpeg_metadata"
+            }
+            
+        except Exception as e:
+            logger.warning(f"Error obteniendo metadatos con ffmpeg: {e}")
+        
         # Si llegamos aquí, no hay herramientas disponibles o todas fallaron
         logger.warning(f"No se pudo transcribir {os.path.basename(audio_path)} con ninguna herramienta disponible")
-        return None
+        return {
+            "text": "[Este es un archivo de audio. No se pudo transcribir automáticamente porque ninguna herramienta de transcripción está disponible.]",
+            "tool": "fallback"
+        }
     
     def transcribe_audio(self, audio_metadata, date_str, max_duration_minutes=12):
         """
