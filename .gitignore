@@ -1,5 +1,4 @@
 # Gitignore actualizado para el proyecto scr1403
-# Versión actualizada considerando los cambios en la estructura
 
 # Ignorar todos los archivos en /codigo/ excepto los específicos que queremos mantener
 /codigo/*
@@ -40,13 +39,9 @@
 # Todos los archivos JSON de enlaces de imágenes
 /input/Images/image_links_*.json
 
-# Ignorar PDFs descargados y carpetas de PDF en /base/
+# REGLAS PARA LA CARPETA BASE:
+# Ignorar subcarpetas dentro de base, pero permitir todos los archivos en la raíz de base
 /base/*/
-*.pdf
-
-# PDFs específicos para incluir
-!base/10042025.pdf
-!base/11042025.pdf
 
 # Permitir la estructura de carpetas base
 !base/.gitkeep
