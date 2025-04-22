@@ -1,0 +1,28 @@
+```
+2025-04-22 10:17:48,967 - main_orchestrator - INFO - --- Paso 6: Procesando Imágenes Descargadas (API) ---
+2025-04-22 10:17:48,969 - main_orchestrator - INFO - El sistema utilizará procesamiento adaptativo con reintentos para imágenes.
+2025-04-22 10:25:34,679 - lib.api_client - INFO - Texto extraído de tmpf4dvg75v.jpg (4 chars).
+2025-04-22 10:25:34,682 - lib.image_processor - INFO - Procesando 5 imágenes con API (batch_size=3, pausa=60s)
+2025-04-22 10:25:34,684 - lib.image_processor - INFO - Procesando batch 1 (3 imágenes)
+2025-04-22 10:25:34,687 - lib.image_processor - INFO - Procesando imagen con API: img_2_4a08dc6d_10042025.jpg
+2025-04-22 10:26:31,122 - lib.api_client - INFO - Texto extraído de img_2_4a08dc6d_10042025.jpg (3781 chars).
+2025-04-22 10:26:36,657 - lib.image_processor - INFO - Imagen procesada exitosamente: img_2_4a08dc6d_10042025.jpg
+2025-04-22 10:26:38,924 - lib.image_processor - INFO - Procesando imagen con API: img_5_fa4f4502_10042025.jpg
+2025-04-22 10:26:55,863 - lib.api_client - INFO - Texto extraído de img_5_fa4f4502_10042025.jpg (1044 chars).
+2025-04-22 10:27:02,970 - lib.image_processor - INFO - Imagen procesada exitosamente: img_5_fa4f4502_10042025.jpg
+2025-04-22 10:27:05,927 - lib.image_processor - INFO - Procesando imagen con API: img_3_78253113_10042025.jpg
+2025-04-22 10:27:11,737 - lib.api_client - INFO - Texto extraído de img_3_78253113_10042025.jpg (1324 chars).
+2025-04-22 10:27:24,993 - lib.image_processor - INFO - Imagen procesada exitosamente: img_3_78253113_10042025.jpg
+2025-04-22 10:27:29,061 - lib.image_processor - INFO - Pausa de 60s antes del siguiente batch...
+2025-04-22 10:28:29,063 - lib.image_processor - INFO - Procesando batch 2 (2 imágenes)
+2025-04-22 10:28:29,064 - lib.image_processor - INFO - Procesando imagen con API: img_4_0266e672_10042025.jpg
+2025-04-22 10:28:34,997 - lib.api_client - INFO - Texto extraído de img_4_0266e672_10042025.jpg (1297 chars).
+2025-04-22 10:28:42,461 - lib.image_processor - INFO - Imagen procesada exitosamente: img_4_0266e672_10042025.jpg
+2025-04-22 10:28:45,370 - lib.image_processor - INFO - Procesando imagen con API: img_1_b36706b0_10042025.jpg
+2025-04-22 10:28:58,117 - lib.api_client - INFO - Texto extraído de img_1_b36706b0_10042025.jpg (3567 chars).
+2025-04-22 10:29:05,512 - lib.image_processor - INFO - Imagen procesada exitosamente: img_1_b36706b0_10042025.jpg
+2025-04-22 10:29:09,133 - lib.file_manager - INFO - Datos guardados en JSON: C:\Jerson\SUNASS\2025\4_April\gem\scr1403\input\Images\downloads\10042025\texto_imagenes_api.json
+2025-04-22 10:29:09,134 - lib.image_processor - INFO - Resultados de API guardados en: C:\Jerson\SUNASS\2025\4_April\gem\scr1403\input\Images\downloads\10042025\texto_imagenes_api.json
+2025-04-22 10:29:09,136 - lib.image_processor - INFO - Procesamiento API completado para 5/5 imágenes en 214.45 segundos.
+2025-04-22 10:29:09,137 - main_orchestrator - INFO - Procesamiento API de imágenes completado en 680.17 seg.
+```

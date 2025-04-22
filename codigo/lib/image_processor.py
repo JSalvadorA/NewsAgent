@@ -519,7 +519,7 @@ class ImageProcessor:
                 batch_results.append(result)
                 
                 # Opcional: pequeña pausa entre imágenes del mismo batch
-                time.sleep(random.uniform(2, 5))
+                time.sleep(random.uniform(0.5, 1))
             
             # Añadir resultados del batch
             api_results.extend(batch_results)
@@ -797,7 +797,7 @@ class ImageProcessor:
              }
 
          # Implementar pacing para Gemini API (evitar límites de cuota)
-         wait_time = random.uniform(5, 15)  # Entre 5 y 15 segundos entre solicitudes
+         wait_time = random.uniform(1, 3)  # Entre 1 y 3 segundos entre solicitudes
          logger.debug(f"Esperando {wait_time:.2f} segundos antes de la siguiente solicitud a Gemini API")
          time.sleep(wait_time)
 
