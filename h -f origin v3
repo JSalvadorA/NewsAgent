@@ -1,0 +1,36 @@
+[33mcommit 010e1c1cf7c47d3d63953a7a3aae905ee7bafe1e[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mv3[m[33m)[m
+Author: JSalvadorA <jsalvadoragurto@gmail.com>
+Date:   Tue Apr 22 19:51:01 2025 -0500
+
+    Implementación del patrón Factory, mejoras en configuración centralizada, e inclusión de credenciales y PDFs
+
+[33mcommit 197dae9f6733d6ac0b542b2298b2d4763674594b[m[33m ([m[1;31morigin/v3[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m, [m[1;32mmain[m[33m)[m
+Author: JersonLee <jsalvadoragurto@gmail.com>
+Date:   Thu Apr 10 10:42:10 2025 -0500
+
+    actualiza readme y .gitignore
+
+[33mcommit fd3d6d012de3337f68b9d24f9112d9848c607746[m
+Author: JersonLee <jsalvadoragurto@gmail.com>
+Date:   Thu Apr 10 10:32:16 2025 -0500
+
+    elimina cache para evitar confusion
+
+[33mcommit ff7eb2c5e4707c44993081b5b5c3e6cdcb7f37aa[m
+Merge: e9115b9 004d66a
+Author: JersonLee <jsalvadoragurto@gmail.com>
+Date:   Thu Apr 10 10:14:56 2025 -0500
+
+    readme v2
+
+[33mcommit e9115b9a85d0dc032ea1662c830bda52dca30e8d[m
+Author: JersonLee <jsalvadoragurto@gmail.com>
+Date:   Wed Apr 9 19:15:24 2025 -0500
+
+    PrimeraVersion
+
+[33mcommit 004d66a8c2d2b719a91e71e91a55935c2541a375[m
+Author: JSalvadorA <49709035+JSalvadorA@users.noreply.github.com>
+Date:   Wed Apr 9 17:37:19 2025 -0500
+
+    Initial commit

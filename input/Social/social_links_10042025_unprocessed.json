@@ -1,0 +1,35 @@
+[
+    {
+        "Page": 1,
+        "URL": "https://www.facebook.com/diarioahoraloreto/posts/1224278469702871",
+        "Rect": [
+            48.14536666870117,
+            773.796142578125,
+            125.49899291992188,
+            783.6187744140625
+        ],
+        "Context": "p pago de los recibos que son (Diario Ahora Loreto, Diario"
+    },
+    {
+        "Page": 1,
+        "URL": "https://www.facebook.com/100063696452238/posts/1228313579301846/",
+        "Rect": [
+            131.02426147460938,
+            773.796142578125,
+            197.9412841796875,
+            783.6187744140625
+        ],
+        "Context": "p ecibos que son materia de reclam Loreto, Diario La Región, Región"
+    },
+    {
+        "Page": 1,
+        "URL": "https://www.facebook.com/share/p/16Fc4PXva9/",
+        "Rect": [
+            202.85263061523438,
+            773.796142578125,
+            294.9402770996094,
+            783.6187744140625
+        ],
+        "Context": "p y teria de reclamo y la prohibición de rea Región, Región Iquitos Noticias)"
+    }
+]

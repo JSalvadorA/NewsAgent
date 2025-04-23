@@ -1,60 +1,30 @@
-# Ignorar archivos específicos en la carpeta codigo (excepto los que necesitas)
-/codigo/*.py
-/codigo/*.json
-/codigo/__pycache__/
+# .gitignore para NewsAgent
 
-# Excepciones (archivos que SÍ quieres incluir en codigo/)
-!/codigo/main.py
-!/codigo/notebook_utils.py
-!/codigo/lib/
+# ENTORNO VIRTUAL - NUNCA INCLUIR
+/.env/
+/env/
+/venv/
+/.venv/
 
-# Ignorar directorios de datos extensos
-input/Images/downloads/*
-input/Images/skipped/*
-input/Out/*
-input/Stats/*
+# Directorios que no queremos incluir
+/cache/*
+/logs/*
 
-# Permitir estructura de carpetas pero no contenido
-!input/Images/downloads/.gitkeep
-!input/Images/skipped/.gitkeep
-!input/Out/.gitkeep
-!input/Stats/.gitkeep
-
-# Ignorar PDFs descargados
-base/*
-!base/.gitkeep
-
-# Archivos de salida
-output/*
-!output/.gitkeep
-
-# Logs
-logs/*
-!logs/.gitkeep
-
-# Archivos de historial extensos
-codigo/lib/history/processed_urls.json
-
-# Caché y archivos de Python
+# Archivos de Python estándar para ignorar
 __pycache__/
 *.py[cod]
 *$py.class
-.env
-*.so
-
-# Archivos del sistema
-.DS_Store
-Thumbs.db
-
-# Archivos de notebook que no deberían ser comprometidos
 .ipynb_checkpoints/
 
-# Archivos de IDE y editor
-.idea/
+# Archivos temporales y de sistema
+.DS_Store
+Thumbs.db
 .vscode/
+.idea/
 *.swp
 *.swo
+*~
 
-# Credenciales y claves API (¡importante para seguridad!)
-credentials/*
-!credentials/.gitkeep
+# Mantener estos .gitkeep para la estructura
+!cache/.gitkeep
+!logs/.gitkeep
