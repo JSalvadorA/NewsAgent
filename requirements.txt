@@ -1,15 +1,48 @@
-beautifulsoup4>=4.9.3
-fitz>=0.0.1.dev2
-google-generativeai>=0.3.1
-numpy>=1.19.5
-pandas>=1.1.5
-pdf2image>=1.14.0
-pillow>=8.1.0
-pymupdf>=1.22.5
-PyYAML>=6.0
-requests>=2.25.1
-selenium>=4.10.0
-webdriver-manager>=3.8.5
-tqdm>=4.64.1
-jupyter>=1.0.0
-ipywidgets>=8.0.0
+# requirements.txt
+
+# PDF Processing
+PyMuPDF>=1.19.0 # O la versión más reciente compatible
+PyPDF2>=3.0.0  # Para extracción de texto de PDFs
+pdf2image>=1.16.0  # Para conversión de PDF a imágenes
+
+# OCR & Image Processing
+pytesseract>=0.3.8  # OCR con Tesseract
+opencv-python>=4.5.0  # Procesamiento de imágenes (cv2)
+Pillow>=8.0.0  # Manipulación de imágenes
+numpy>=1.19.0  # Necesario para operaciones con imágenes
+
+# Audio Processing
+whisper>=1.1.10  # Transcripción de audio local
+SpeechRecognition>=3.8.0  # Reconocimiento de voz
+vosk>=0.3.30  # Transcripción alternativa
+
+# Data Handling
+pandas>=1.3.0
+PyYAML>=5.4.0
+
+# Web Scraping & HTTP Requests
+requests>=2.25.0
+beautifulsoup4>=4.9.0
+lxml>=4.6.0 # Parser alternativo para bs4, a menudo más rápido
+selenium>=4.0.0
+webdriver-manager>=3.5.0 # Para gestionar chromedriver automáticamente
+
+# API y procesamiento
+google-generativeai>=0.3.0  # Para Gemini API
+openai>=1.0.0  # Para OpenAI API
+
+# Otros (si se usan explícitamente, aunque algunos son dependencias)
+urllib3>=1.26.0
+
+# Jupyter Support
+ipykernel>=6.0.0  # Para ejecutar el kernel de Jupyter
+ipywidgets>=7.6.0  # Para los widgets interactivos en NewsAg.ipynb
+jupyter>=1.0.0  # Para soporte completo de Jupyter
+notebook>=6.0.0  # Para ejecutar notebooks
+
+# Dependencias adicionales para el proyecto
+ffmpeg-python>=0.2.0  # Para procesamiento de audio/video
+pydub>=0.25.0  # Para manipulación de audio
+
+# Para desarrollo y pruebas (opcional, pero recomendado)
+# pytest>=6.2.0

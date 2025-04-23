@@ -9,7 +9,7 @@ import logging
 from typing import Dict, Any, Type, Optional, List, Union
 import importlib
 
-from codigo.lib.config import Configuration
+from codigo.lib.config_unified import ConfigurationManager
 from codigo.lib.api_client import APIClient
 
 logger = logging.getLogger(__name__)
@@ -45,7 +45,7 @@ class ComponentFactory:
             
         # Inicializar con configuración
         if config is None:
-            self._config = Configuration().get_config()
+            self._config = ConfigurationManager.get_instance().config
         else:
             self._config = config
             

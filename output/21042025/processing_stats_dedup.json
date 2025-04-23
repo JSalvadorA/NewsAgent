@@ -1,0 +1,43 @@
+{
+    "run_timestamp": "2025-04-23T15:53:13.256082",
+    "date_processed": "21042025",
+    "total_urls_in_pdf": 103,
+    "new_urls_processed_count": 99,
+    "history_total_urls": 148,
+    "categories": {
+        "html": 36,
+        "images": 14,
+        "social": 49
+    },
+    "html_processing": {
+        "attempted": 36,
+        "processed": 31,
+        "successful": 31,
+        "relevant (>=0.3)": 0,
+        "average_relevance": 0.0
+    },
+    "image_processing": {
+        "attempted_download": 14,
+        "successful_download": 13,
+        "attempted_api": 13,
+        "successful_api": 0
+    },
+    "facebook_processing": {
+        "attempted": 134,
+        "successful": 94,
+        "unique": 19,
+        "duplicates": 115,
+        "duplicate_percentage": 85.82,
+        "extracted_texts": 129
+    },
+    "timings_seconds": {
+        "pdf_extraction": 0.34,
+        "pdf_text_extraction": 2.33,
+        "image_download": 12.17,
+        "html_scraping": 22.82,
+        "image_api": 371.66,
+        "facebook_processing": 127.65,
+        "facebook_text_extraction": 2.33,
+        "stats_consolidation": 0.0
+    }
+}

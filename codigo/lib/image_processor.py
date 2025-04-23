@@ -10,7 +10,33 @@ from datetime import datetime
 # Importar utilidades locales
 from .cache_utils import get_cache_key, load_from_cache, save_to_cache
 from .file_manager import save_to_json, ensure_dir_exists
-from .api_client import ImageTextExtractorAPI # Importar cliente API
+
+# Intentar importar ImageTextExtractorAPI de diferentes formas para mayor compatibilidad
+try:
+    # Primero intenta la importación relativa (estilo paquete)
+    from .image_text_extractor_api import ImageTextExtractorAPI
+except ImportError:
+    try:
+        # Intenta importación absoluta dentro del paquete lib
+        from lib.image_text_extractor_api import ImageTextExtractorAPI
+    except ImportError:
+        try:
+            # Intenta importación absoluta desde codigo.lib
+            from codigo.lib.image_text_extractor_api import ImageTextExtractorAPI
+        except ImportError:
+            # Implementa una clase de respaldo que registre los errores pero no falle la importación
+            class ImageTextExtractorAPI:
+                def __init__(self, **kwargs):
+                    import logging
+                    self.logger = logging.getLogger(__name__)
+                    self.logger.error("No se pudo importar la verdadera ImageTextExtractorAPI. Usando implementación de respaldo.")
+                    
+                def extract_text_from_image(self, image_path):
+                    return {
+                        "error": "Módulo ImageTextExtractorAPI no disponible",
+                        "image_filename": image_path if isinstance(image_path, str) else "unknown",
+                        "extracted_text": ""
+                    }
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +65,7 @@ class ImageProcessor:
         self.max_workers = config.get('max_workers', 5)
 
         # Inicializar cliente Gemini API
+        self.api_client = None
         try:
             # Obtener configuración de API desde config
             api_config = config.get('api', {})
@@ -46,15 +73,26 @@ class ImageProcessor:
             model_name = api_config.get('model', 'gemini-1.5-pro-latest')
             prompt_key = api_config.get('prompt_key', 'detallado')
             
-            # Inicializar cliente API de Gemini
-            self.api_client = ImageTextExtractorAPI(
-                api_key=api_key,
-                model_name=model_name,
-                prompt_key=prompt_key
-            )
-            logger.info(f"Cliente Gemini API inicializado con modelo {model_name}")
+            # Verificar si la clase ImageTextExtractorAPI está disponible
+            if 'ImageTextExtractorAPI' in globals():
+                # Inicializar cliente API de Gemini
+                self.api_client = ImageTextExtractorAPI(
+                    api_key=api_key,
+                    model_name=model_name,
+                    prompt_key=prompt_key
+                )
+                logger.info(f"Cliente Gemini API inicializado con modelo {model_name}")
+            else:
+                logger.warning("Clase ImageTextExtractorAPI no disponible globalmente")
+                # Intentar crear un cliente minimalista de respaldo
+                self.api_client = object()
+                self.api_client.extract_text_from_image = lambda image_path: {
+                    "error": "Clase ImageTextExtractorAPI no disponible",
+                    "image_filename": os.path.basename(image_path) if isinstance(image_path, str) else "unknown",
+                    "extracted_text": ""
+                }
+                
         except Exception as e:
-            self.api_client = None
             logger.warning(f"No se pudo inicializar Gemini API: {e}")
             logger.warning("API de extracción de texto de imágenes no configurada. No se procesarán imágenes con API.")
 

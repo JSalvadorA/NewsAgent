@@ -11,7 +11,7 @@ import inspect
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Type, Set
 
-from codigo.lib.factory import ComponentFactory
+from lib.factory import ComponentFactory
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ class ComponentLoader:
         
         logger.debug("ComponentLoader inicializado")
     
-    def discover_components(self, base_package: str = 'codigo.components') -> Dict[str, str]:
+    def discover_components(self, base_package: str = 'components') -> Dict[str, str]:
         """
         Descubre automáticamente los componentes disponibles en el paquete especificado.
         
@@ -85,7 +85,7 @@ class ComponentLoader:
             logger.error(f"No se pudo importar el paquete base {base_package}: {e}")
             return {}
     
-    def load_all_components(self, base_package: str = 'codigo.components') -> int:
+    def load_all_components(self, base_package: str = 'components') -> int:
         """
         Carga y registra todos los componentes disponibles en el paquete especificado.
         

@@ -11,7 +11,7 @@ from typing import Dict, Any, List, Optional, Tuple, Union
 from pathlib import Path
 from datetime import datetime
 
-from codigo.lib.api_client import APIClient
+from lib.api_client import APIClient
 
 logger = logging.getLogger(__name__)
 

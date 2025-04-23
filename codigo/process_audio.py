@@ -29,8 +29,8 @@ logging.basicConfig(
 logger = logging.getLogger("audio_processor")
 
 # Importar componentes del sistema
-from codigo.lib.component_loader import get_component_loader
-from codigo.lib.config_unified import get_config
+from lib.component_loader import get_component_loader
+from lib.config_unified import get_config
 
 def parse_args() -> argparse.Namespace:
     """

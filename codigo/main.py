@@ -36,7 +36,7 @@ logging.getLogger("webdriver_manager").setLevel(logging.WARNING)
 
 
 # Importar módulos de la biblioteca 'lib' (DESPUÉS de configurar logging y sys.path)
-from lib.config_manager import load_config, get_paths
+from lib.config_unified import get_config
 from lib.file_manager import save_to_csv, save_to_json, save_stats
 from lib.pdf_processor import extract_links_from_pdf
 from lib.url_manager import classify_urls
@@ -62,8 +62,9 @@ def run_pipeline(custom_date_str=None):
 
     # --- 1. Cargar Configuración y Rutas ---
     try:
-        config = load_config(project_root)
-        paths = get_paths(config, custom_date=today_date_for_filename) # Pasar la fecha correcta
+        config_manager = get_config(project_root)
+        paths = config_manager.generate_paths(custom_date=today_date_for_filename) # Pasar la fecha correcta
+        config = config_manager.config
         logger.info("Configuración y rutas cargadas.")
         logger.debug(f"PDF de entrada: {paths['pdf_input']}")
         logger.debug(f"Directorio de caché: {paths['cache_dir']}")

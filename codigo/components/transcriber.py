@@ -7,10 +7,11 @@ Implementa la funcionalidad para transcribir archivos de audio mediante servicio
 import os
 import logging
 import time
+import json
 from typing import Dict, Any, List, Optional, Tuple, Union
 from pathlib import Path
 
-from codigo.lib.api_client import APIClient
+from lib.api_client import APIClient
 
 logger = logging.getLogger(__name__)
 
@@ -136,11 +137,14 @@ class Transcriber:
                 }
                 
                 # Realizar la petición
-                response = self.api_client.transcribe_audio(
-                    audio_file_path=str(audio_file),
-                    params=params,
-                    timeout=self.timeout
-                )
+                # Crear datos adicionales para subir junto al archivo
+                additional_data = {
+                    "format": self.output_format,
+                    "language": self.language,
+                    "metadata": json.dumps(metadata)
+                }
+                
+                response = self.api_client.transcribe_audio(str(audio_file))
                 
                 # Verificar respuesta
                 if response and isinstance(response, dict):
