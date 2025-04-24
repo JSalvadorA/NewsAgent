@@ -277,7 +277,7 @@ class ImageProcessor:
             
         if not self.api_client:
             logger.warning("Cliente API no inicializado. No se pueden procesar imágenes.")
-             return []
+            return []
 
         # Obtener fecha del directorio o usar la actual
         image_dir = next(iter(downloaded_images_metadata.values())).get('filepath', '')

@@ -302,14 +302,23 @@ def run_pipeline(custom_date_str=None):
             # Extraer solo las URLs de los diccionarios
             fb_urls = [link["URL"] for link in facebook_links]
             
+            # Verificar conexión a internet antes de procesar Facebook
+            internet_available = check_internet_connection()
+            if not internet_available:
+                logger.error("No hay conexión a internet disponible. Saltando procesamiento de Facebook.")
+                processed_data["facebook"] = {}
+                facebook_duration = 0
+                return
+            
             # Establecer un timeout para evitar congelamientos
             try:
-                # CAMBIO AQUÍ: Usamos el procesador con deduplicación con timeout
+                # CAMBIO AQUÍ: Usamos el procesador con deduplicación con timeout más corto
                 with ThreadPoolExecutor(max_workers=2) as executor:
                     future = executor.submit(facebook_processor.process_facebook_urls_parallel, fb_urls, today_date_for_filename)
                     try:
-                        # Establecer un timeout de 3 minutos para cada URL
-                        timeout_seconds = 180 * len(fb_urls)
+                        # Timeout más corto: 2 minutos por URL, máximo 10 minutos total
+                        timeout_seconds = min(600, 120 * len(fb_urls))
+                        logger.info(f"Procesando URLs de Facebook con timeout de {timeout_seconds} segundos")
                         processed_data["facebook"] = future.result(timeout=timeout_seconds)
                     except concurrent.futures.TimeoutError:
                         logger.error(f"Timeout después de {timeout_seconds} segundos procesando URLs de Facebook")
@@ -555,3 +564,39 @@ if __name__ == "__main__":
             date_arg = None
 
     run_pipeline(custom_date_str=date_arg)
+
+# -------------------------------
+# Funciones auxiliares
+# -------------------------------
+def save_to_json(data, output_path, indent=4):
+    """Guarda datos en un archivo JSON"""
+    try:
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=indent)
+    except Exception as e:
+        logger.error(f"Error guardando JSON en {output_path}: {e}")
+
+def save_stats(stats_dict, output_path):
+    """Guarda estadísticas en un archivo JSON"""
+    save_to_json(stats_dict, output_path)
+    logger.info(f"Estadísticas guardadas en {output_path}")
+
+def check_internet_connection():
+    """
+    Verifica si hay conexión a internet disponible usando un ping a Google.
+    
+    Returns:
+        bool: True si hay conexión, False si no hay
+    """
+    import socket
+    try:
+        # Intenta conectar a Google DNS para verificar conexión
+        socket.create_connection(("8.8.8.8", 53), timeout=3)
+        return True
+    except OSError:
+        try:
+            # Segundo intento a Cloudflare
+            socket.create_connection(("1.1.1.1", 53), timeout=3)
+            return True
+        except OSError:
+            return False

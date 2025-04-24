@@ -46,6 +46,27 @@ from lib.image_processor import ImageProcessor
 from lib.facebook_processor import FacebookProcessor
 from lib.text_extractor import extract_and_save_pdf_text
 
+# Función para verificar conexión a internet
+def check_internet_connection():
+    """
+    Verifica si hay conexión a internet disponible usando un ping a Google.
+    
+    Returns:
+        bool: True si hay conexión, False si no hay
+    """
+    import socket
+    try:
+        # Intenta conectar a Google DNS para verificar conexión
+        socket.create_connection(("8.8.8.8", 53), timeout=3)
+        return True
+    except OSError:
+        try:
+            # Segundo intento a Cloudflare
+            socket.create_connection(("1.1.1.1", 53), timeout=3)
+            return True
+        except OSError:
+            return False
+
 # -------------------------------
 # Función principal de orquestación
 # -------------------------------
@@ -299,14 +320,22 @@ def run_pipeline(custom_date_str=None):
             
             # Extraer solo las URLs de los diccionarios
             fb_urls = [link["URL"] for link in facebook_links]
-            processed_data["facebook"] = facebook_processor.process_facebook_urls_parallel(fb_urls, today_date_for_filename)
-            facebook_duration = time.time() - facebook_start
-            logger.info(f"Procesamiento de URLs de Facebook completado en {facebook_duration:.2f} seg.")
             
-            # Añadir URLs procesadas al historial
-            if processed_data["facebook"]:
-                facebook_processed_urls = list(processed_data["facebook"].keys())
-                history_tracker.add_processed_urls(facebook_processed_urls)
+            # Verificar conexión a internet antes de procesar Facebook
+            internet_available = check_internet_connection()
+            if not internet_available:
+                logger.error("No hay conexión a internet disponible. Saltando procesamiento de Facebook.")
+                processed_data["facebook"] = {}
+                facebook_duration = 0
+            else:
+                processed_data["facebook"] = facebook_processor.process_facebook_urls_parallel(fb_urls, today_date_for_filename)
+                facebook_duration = time.time() - facebook_start
+                logger.info(f"Procesamiento de URLs de Facebook completado en {facebook_duration:.2f} seg.")
+                
+                # Añadir URLs procesadas al historial
+                if processed_data["facebook"]:
+                    facebook_processed_urls = list(processed_data["facebook"].keys())
+                    history_tracker.add_processed_urls(facebook_processed_urls)
         else:
             logger.info("No hay URLs de Facebook para procesar.")
 

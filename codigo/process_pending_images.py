@@ -306,29 +306,91 @@ class EnhancedImageProcessor:
             logger.info(f"Usando resultado en caché para imagen similar: {os.path.basename(img_path)}")
             return cached_result
         
-        # Obtener tamaño para logging
+        # Obtener tamaño para logging y decisiones
         file_size_mb = os.path.getsize(img_path) / (1024 * 1024)
+        
+        # MEJORA: Si la imagen es muy grande (>5MB), saltar automáticamente para evitar timeouts
+        if file_size_mb > 5.0:
+            logger.warning(f"Imagen demasiado grande para procesamiento eficiente: {os.path.basename(img_path)} ({file_size_mb:.2f}MB). Saltando.")
+            return {
+                "image_path": img_path,
+                "processed_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "file_size_mb": round(file_size_mb, 2),
+                "detected_text": "",
+                "error": "Imagen demasiado grande para procesamiento eficiente",
+                "success": False,
+                "skipped": True
+            }
+        
+        # Tiempo estimado basado en el tamaño (imágenes grandes requieren más tiempo)
         est_time = min(max(30, int(file_size_mb * 5)), 120)
         logger.info(f"Procesando imagen {os.path.basename(img_path)} ({file_size_mb:.2f}MB, tiempo estimado: ~{est_time}s)")
         
         start_time = time.time()
         
         try:
-            # Llamar al extractor de Gemini para obtener texto
-            text = self.gemini_extractor.extract_text_from_image(img_path)
+            # MEJORA: Establecer un timeout más corto para el extractor, máximo 3 minutos
+            # Configurar un tiempo máximo de procesamiento basado en el tamaño (2-3 minutos máximo)
+            timeout_seconds = min(180, int(60 + file_size_mb * 20))
             
-            # Crear resultado en formato consistente
-            result = {
-                "image_path": img_path,
-                "processed_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "file_size_mb": round(file_size_mb, 2),
-                "detected_text": text if text else "",
-                "success": bool(text),
-                "processing_time_seconds": round(time.time() - start_time, 2)
-            }
+            # Utilizamos Threading para poder implementar nuestro propio timeout
+            result_container = []
+            error_container = []
             
-            # Guardar en caché para futuras consultas
-            self._cache_result(img_path, result)
+            def process_with_timeout():
+                try:
+                    # Llamar al extractor de Gemini para obtener texto
+                    text = self.gemini_extractor.extract_text_from_image(img_path)
+                    result_container.append(text)
+                except Exception as e:
+                    error_container.append(str(e))
+            
+            # Crear y ejecutar el thread con timeout
+            import threading
+            thread = threading.Thread(target=process_with_timeout)
+            thread.daemon = True
+            thread.start()
+            thread.join(timeout_seconds)
+            
+            # Verificar resultado o timeout
+            if thread.is_alive():
+                # Timeout ocurrió
+                logger.warning(f"Timeout después de {timeout_seconds}s procesando {os.path.basename(img_path)}")
+                result = {
+                    "image_path": img_path,
+                    "processed_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "file_size_mb": round(file_size_mb, 2),
+                    "error": f"Timeout después de {timeout_seconds} segundos",
+                    "success": False,
+                    "processing_time_seconds": round(time.time() - start_time, 2)
+                }
+            elif error_container:
+                # Error durante el procesamiento
+                error_msg = error_container[0]
+                logger.error(f"Error procesando {os.path.basename(img_path)}: {error_msg}")
+                result = {
+                    "image_path": img_path,
+                    "processed_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "file_size_mb": round(file_size_mb, 2),
+                    "error": error_msg,
+                    "success": False,
+                    "processing_time_seconds": round(time.time() - start_time, 2)
+                }
+            else:
+                # Procesamiento exitoso
+                text = result_container[0] if result_container else ""
+                result = {
+                    "image_path": img_path,
+                    "processed_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "file_size_mb": round(file_size_mb, 2),
+                    "detected_text": text if text else "",
+                    "success": bool(text),
+                    "processing_time_seconds": round(time.time() - start_time, 2)
+                }
+            
+            # Guardar en caché para futuras consultas (sólo si fue exitoso o skip)
+            if result["success"] or result.get("skipped"):
+                self._cache_result(img_path, result)
             
             proc_time = time.time() - start_time
             if result["success"]:

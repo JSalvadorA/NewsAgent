@@ -53,7 +53,7 @@ def force_reprocess_images(date_str):
         config['paths'] = paths
     
     # Forzar configuración para el procesamiento por lotes
-    config['batch_size'] = 3  # Procesar 3 imágenes por lote
+    config['batch_size'] = 2  # Procesar 2 imágenes por lote (reducido de 3)
     config['short_pause_seconds'] = 60  # Pausa de 60 segundos entre lotes
     config['long_pause_seconds'] = 90   # Pausa más larga para imágenes complejas
     config['force_reprocess'] = True    # Flag especial para forzar reprocesamiento

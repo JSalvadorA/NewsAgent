@@ -32,7 +32,7 @@ if __name__ == "__main__":
         }
     
     # Configurar procesamiento en lotes y pausas
-    config['batch_size'] = 3  # Procesar 3 imágenes por lote
+    config['batch_size'] = 2  # Procesar 2 imágenes por lote (reducido de 3)
     config['short_pause_seconds'] = 60  # Pausa de 60 segundos entre lotes simples
     config['long_pause_seconds'] = 90   # Pausa de 90 segundos entre lotes complejos
     
