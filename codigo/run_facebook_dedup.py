@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Script para probar el procesamiento de Facebook con deduplicación.
-Ejecuta específicamente el componente de Facebook con detección de contenido duplicado.
+Script independiente para procesar URLs de Facebook con deduplicación.
+Soluciona problemas de errores en main_with_dedup.py relacionados con la función check_internet_connection.
 """
 
 import os
@@ -9,11 +9,11 @@ import sys
 import logging
 import json
 import time
-import argparse
 from datetime import datetime
-from pathlib import Path
+import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor
 
-# Ajustar path para importaciones
+# Asegurarse de que el directorio 'lib' esté en el path para imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
 lib_path = os.path.join(current_dir, 'lib')
 project_root = os.path.abspath(os.path.join(current_dir, '..'))
@@ -35,202 +35,184 @@ logging.basicConfig(
 )
 logger = logging.getLogger("facebook_dedup")
 
-# Importaciones del sistema
+# Silenciar logs verbosos
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("selenium").setLevel(logging.WARNING)
+logging.getLogger("webdriver_manager").setLevel(logging.WARNING)
+
+# Imports específicos
 from lib.config_unified import get_config
-from lib.file_manager import save_to_json, ensure_dir_exists
-from lib.facebook_processor_dedup import FacebookProcessorWithDedup
+from lib.config_manager import get_paths
+from lib.facebook_processor_dedup_improved import FacebookProcessorWithDedup
 from lib.history_tracker import HistoryTracker
 
-def parse_args():
-    """Parsea los argumentos de línea de comandos."""
-    parser = argparse.ArgumentParser(description="Procesa URLs de Facebook con detección de duplicados")
+# Función para verificar conexión a internet
+def check_internet_connection():
+    """
+    Verifica si hay conexión a internet disponible usando un ping a Google.
     
-    parser.add_argument('--date', type=str, help="Fecha en formato DDMMYYYY (por defecto: fecha actual)")
-    parser.add_argument('--input', type=str, help="Archivo JSON con URLs a procesar")
-    parser.add_argument('--disable-dedup', action='store_true', help="Desactiva la deduplicación")
-    parser.add_argument('--threshold', type=float, default=0.85, help="Umbral de similitud (0.0-1.0)")
-    parser.add_argument('--verbose', '-v', action='store_true', help="Muestra información detallada")
-    
-    return parser.parse_args()
+    Returns:
+        bool: True si hay conexión, False si no hay
+    """
+    import socket
+    try:
+        # Intenta conectar a Google DNS para verificar conexión
+        socket.create_connection(("8.8.8.8", 53), timeout=3)
+        return True
+    except OSError:
+        try:
+            # Segundo intento a Cloudflare
+            socket.create_connection(("1.1.1.1", 53), timeout=3)
+            return True
+        except OSError:
+            return False
 
-def load_facebook_urls_from_file(file_path):
-    """Carga URLs de Facebook desde un archivo JSON."""
-    if not os.path.exists(file_path):
-        logger.error(f"Archivo no encontrado: {file_path}")
-        return []
+def save_to_json(data, output_path, indent=4):
+    """Guarda datos en un archivo JSON"""
+    try:
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=indent)
+    except Exception as e:
+        logger.error(f"Error guardando JSON en {output_path}: {e}")
+
+def process_facebook_urls(date_str, fb_urls=None):
+    """
+    Procesa URLs de Facebook con deduplicación
+    
+    Args:
+        date_str: Fecha en formato ddmmyyyy
+        fb_urls: Lista de URLs de Facebook a procesar (opcional)
+    
+    Returns:
+        dict: Resultados del procesamiento
+    """
+    # Cargar configuración
+    config_manager = get_config(project_root)
+    config = config_manager.config
+    paths = get_paths(config, custom_date=date_str)
+    
+    # Añadir configuración de deduplicación
+    if "facebook_dedup" not in config:
+        config["facebook_dedup"] = {
+            "enable_deduplication": True,
+            "similarity_threshold": 0.85,
+            "min_content_length": 100,
+            "normalize_urls": True,
+            "store_mapping": True
+        }
+    
+    # Inicializar el procesador y el historial
+    full_config = {'paths': paths, **config}
+    facebook_processor = FacebookProcessorWithDedup(full_config)
+    history_tracker = HistoryTracker(paths['history_file'])
+    
+    # Si no se proporcionaron URLs, cargar de archivo si existe
+    if not fb_urls:
+        social_file = os.path.join(project_root, 'input', 'Social', f'social_links_{date_str}.json')
+        if os.path.exists(social_file):
+            try:
+                with open(social_file, 'r', encoding='utf-8') as f:
+                    social_links = json.load(f)
+                fb_urls = []
+                for link in social_links:
+                    url = link.get("URL", "")
+                    if "facebook.com" in url.lower() or "fb.com" in url.lower():
+                        fb_urls.append(url)
+                logger.info(f"Cargadas {len(fb_urls)} URLs de Facebook desde {social_file}")
+            except Exception as e:
+                logger.error(f"Error cargando URLs: {e}")
+        
+        # Si no hay URLs, salir
+        if not fb_urls:
+            logger.warning("No se encontraron URLs de Facebook para procesar")
+            return {}
+    
+    # Limitar el número de URLs para evitar congelamientos
+    max_facebook_urls = 5
+    if len(fb_urls) > max_facebook_urls:
+        logger.warning(f"Limitando procesamiento a {max_facebook_urls} URLs de Facebook para evitar congelamientos")
+        fb_urls = fb_urls[:max_facebook_urls]
+    
+    logger.info(f"Procesando {len(fb_urls)} URLs de Facebook")
+    
+    # Crear directorio de fecha en 'base' si no existe
+    base_date_dir = os.path.join(project_root, 'base', date_str)
+    os.makedirs(base_date_dir, exist_ok=True)
+    
+    # Verificar conexión a internet
+    internet_available = check_internet_connection()
+    if not internet_available:
+        logger.error("No hay conexión a internet disponible. Saltando procesamiento de Facebook.")
+        return {}
+    
+    # Procesar URLs con timeout
+    facebook_start = time.time()
+    results = {}
     
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        
-        # El formato puede variar, intentar extraer las URLs
-        urls = []
-        
-        # Caso 1: Lista de diccionarios con clave "URL"
-        if isinstance(data, list) and all(isinstance(item, dict) for item in data):
-            for item in data:
-                if "URL" in item and isinstance(item["URL"], str):
-                    url = item["URL"]
-                    if "facebook.com" in url.lower() or "fb.com" in url.lower():
-                        urls.append(url)
-        
-        # Caso 2: Diccionario con URLs como claves
-        elif isinstance(data, dict):
-            for url in data.keys():
-                if isinstance(url, str) and ("facebook.com" in url.lower() or "fb.com" in url.lower()):
-                    urls.append(url)
-        
-        # Caso 3: Lista simple de URLs
-        elif isinstance(data, list) and all(isinstance(item, str) for item in data):
-            for url in data:
-                if "facebook.com" in url.lower() or "fb.com" in url.lower():
-                    urls.append(url)
-        
-        logger.info(f"Cargadas {len(urls)} URLs de Facebook desde {file_path}")
-        return urls
-        
+        # Usar ThreadPoolExecutor para aplicar timeout
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            future = executor.submit(facebook_processor.process_facebook_urls_parallel, fb_urls, date_str)
+            try:
+                # Timeout de 2 minutos por URL, máximo 10 minutos
+                timeout_seconds = min(600, 120 * len(fb_urls))
+                logger.info(f"Procesando URLs con timeout de {timeout_seconds} segundos")
+                results = future.result(timeout=timeout_seconds)
+            except concurrent.futures.TimeoutError:
+                logger.error(f"Timeout después de {timeout_seconds} segundos")
+                results = {}
     except Exception as e:
-        logger.error(f"Error cargando archivo {file_path}: {e}")
-        return []
-
-def search_facebook_urls(date_str):
-    """Busca URLs de Facebook en archivos de la fecha especificada."""
-    urls = []
+        logger.error(f"Error procesando URLs: {e}")
+        results = {}
     
-    # Buscar en diferentes ubicaciones
-    locations = [
-        os.path.join(project_root, 'input', 'Social', f'social_links_{date_str}.json'),
-        os.path.join(project_root, 'input', 'Social', f'social_links_{date_str}_unprocessed.json'),
-        os.path.join(project_root, 'output', date_str, 'social_links.json'),
-        os.path.join(project_root, 'output', f'facebook_results_{date_str}.json')
-    ]
+    # Calcular duración
+    facebook_duration = time.time() - facebook_start
+    logger.info(f"Procesamiento completado en {facebook_duration:.2f} segundos")
     
-    for location in locations:
-        if os.path.exists(location):
-            logger.info(f"Encontrado archivo de URLs: {location}")
-            file_urls = load_facebook_urls_from_file(location)
-            if file_urls:
-                urls.extend(file_urls)
+    # Mostrar estadísticas de deduplicación
+    total_urls = len(fb_urls)
+    unique_urls = sum(1 for result in results.values() if not result.get('is_duplicate') and not result.get('is_content_duplicate', False))
+    duplicate_urls = total_urls - unique_urls
     
-    return urls
-
-def run_facebook_processing(args):
-    """Ejecuta el procesamiento de Facebook con deduplicación."""
+    logger.info(f"URLs: Total={total_urls}, Únicas={unique_urls}, Duplicadas={duplicate_urls}")
     
-    # 1. Obtener fecha a procesar
-    date_str = args.date
-    if not date_str:
-        date_str = datetime.now().strftime('%d%m%Y')
-        logger.info(f"Usando fecha actual: {date_str}")
-    
-    # 2. Cargar configuración
-    logger.info(f"Cargando configuración...")
-    config_manager = get_config(project_root)
-    paths = config_manager.generate_paths(custom_date=date_str)
-    config = config_manager.config
-    
-    # Añadir configuración específica para deduplicación
-    facebook_dedup_config = {
-        "enable_deduplication": not args.disable_dedup,
-        "similarity_threshold": args.threshold,
-        "store_mapping": True
-    }
-    
-    if "facebook_dedup" not in config:
-        config["facebook_dedup"] = facebook_dedup_config
-    else:
-        config["facebook_dedup"].update(facebook_dedup_config)
-    
-    # Combinar configuración y paths
-    full_config = {'paths': paths, **config}
-    
-    # 3. Cargar URLs
-    facebook_urls = []
-    
-    if args.input and os.path.exists(args.input):
-        # Cargar desde archivo específico
-        facebook_urls = load_facebook_urls_from_file(args.input)
-    else:
-        # Buscar en ubicaciones por defecto
-        facebook_urls = search_facebook_urls(date_str)
-    
-    if not facebook_urls:
-        logger.warning("No se encontraron URLs de Facebook para procesar.")
-        return False
-    
-    logger.info(f"Se procesarán {len(facebook_urls)} URLs de Facebook.")
-    
-    # 4. Crear procesador con deduplicación
-    logger.info(f"Inicializando procesador con deduplicación...")
-    facebook_processor = FacebookProcessorWithDedup(full_config)
-    
-    # 5. Procesar URLs
-    logger.info(f"Iniciando procesamiento de URLs...")
-    start_time = time.time()
-    
-    # Procesar URLs
-    results = facebook_processor.process_facebook_urls_parallel(facebook_urls, date_str)
-    
-    # Extraer texto de PDFs
-    logger.info(f"Extrayendo texto de PDFs generados...")
-    pdf_texts = facebook_processor.extract_text_from_all_pdfs(results)
-    
-    # 6. Guardar resultados
-    output_dir = os.path.join(project_root, 'output')
-    ensure_dir_exists(output_dir)
-    
-    results_file = os.path.join(output_dir, f"facebook_results_dedup_{date_str}.json")
+    # Guardar resultados
+    results_file = os.path.join(project_root, 'output', f"facebook_results_dedup_{date_str}.json")
     save_to_json(results, results_file)
-    logger.info(f"Resultados guardados en: {results_file}")
+    logger.info(f"Resultados guardados en {results_file}")
     
-    texts_file = os.path.join(output_dir, f"facebook_texts_dedup_{date_str}.json")
-    save_to_json(pdf_texts, texts_file)
-    logger.info(f"Textos extraídos guardados en: {texts_file}")
+    # Extraer texto de PDFs si hay resultados
+    if results:
+        # Añadir URLs al historial (solo las no duplicadas)
+        facebook_processed_urls = [url for url, result in results.items() 
+                                  if result.get('success') and not result.get('is_duplicate')]
+        if facebook_processed_urls:
+            history_tracker.add_processed_urls(facebook_processed_urls)
+        
+        # Extraer texto de PDFs
+        logger.info("Extrayendo texto de PDFs...")
+        pdf_text_start = time.time()
+        facebook_pdf_texts = facebook_processor.extract_text_from_all_pdfs(results)
+        pdf_text_duration = time.time() - pdf_text_start
+        
+        # Guardar textos extraídos
+        pdf_texts_path = os.path.join(project_root, 'output', f"facebook_texts_dedup_{date_str}.json")
+        save_to_json(facebook_pdf_texts, pdf_texts_path)
+        logger.info(f"Textos de {len(facebook_pdf_texts)} PDFs guardados en {pdf_texts_path}")
     
-    # 7. Estadísticas del procesamiento
-    end_time = time.time()
-    total_time = end_time - start_time
-    
-    # Contar originales vs duplicados
-    total_urls = len(facebook_urls)
-    duplicates = sum(1 for r in results.values() if r.get('is_duplicate') or r.get('is_content_duplicate', False))
-    unique_count = total_urls - duplicates
-    
-    stats = {
-        "timestamp": datetime.now().isoformat(),
-        "date_processed": date_str,
-        "total_urls": total_urls,
-        "unique_urls": unique_count,
-        "duplicate_urls": duplicates,
-        "duplicate_percentage": round((duplicates / total_urls) * 100, 2) if total_urls > 0 else 0,
-        "processing_time_seconds": round(total_time, 2),
-        "deduplication_enabled": not args.disable_dedup,
-        "similarity_threshold": args.threshold
-    }
-    
-    stats_file = os.path.join(output_dir, f"facebook_dedup_stats_{date_str}.json")
-    save_to_json(stats, stats_file)
-    
-    logger.info(f"Procesamiento completado en {total_time:.2f} segundos.")
-    logger.info(f"URLs totales: {total_urls}, Únicas: {unique_count}, Duplicadas: {duplicates}")
-    logger.info(f"Estadísticas guardadas en: {stats_file}")
-    
-    return True
-
-def main():
-    """Función principal del script."""
-    args = parse_args()
-    
-    if args.verbose:
-        logging.getLogger().setLevel(logging.DEBUG)
-    
-    logger.info("=== INICIANDO PROCESAMIENTO DE FACEBOOK CON DEDUPLICACIÓN ===")
-    
-    success = run_facebook_processing(args)
-    
-    logger.info("=== PROCESAMIENTO FINALIZADO ===")
-    
-    return 0 if success else 1
+    return results
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # Obtener fecha del argumento o usar por defecto
+    date_str = sys.argv[1] if len(sys.argv) > 1 else datetime.today().strftime('%d%m%Y')
+    
+    logger.info(f"=== Iniciando procesamiento de Facebook para fecha: {date_str} ===")
+    results = process_facebook_urls(date_str)
+    
+    # Mostrar resumen
+    if results:
+        logger.info(f"Procesamiento completado exitosamente: {len(results)} URLs procesadas")
+    else:
+        logger.warning("No se obtuvieron resultados en el procesamiento")
+    
+    logger.info("=== Procesamiento finalizado ===")
