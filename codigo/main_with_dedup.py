@@ -53,6 +53,27 @@ from lib.facebook_processor_dedup_improved import FacebookProcessorWithDedup
 from lib.history_tracker import HistoryTracker
 from lib.config_manager import get_paths
 
+# Función para verificar conexión a internet
+def check_internet_connection():
+    """
+    Verifica si hay conexión a internet disponible usando un ping a Google.
+    
+    Returns:
+        bool: True si hay conexión, False si no hay
+    """
+    import socket
+    try:
+        # Intenta conectar a Google DNS para verificar conexión
+        socket.create_connection(("8.8.8.8", 53), timeout=3)
+        return True
+    except OSError:
+        try:
+            # Segundo intento a Cloudflare
+            socket.create_connection(("1.1.1.1", 53), timeout=3)
+            return True
+        except OSError:
+            return False
+
 # -------------------------------
 # Función principal de orquestación
 # -------------------------------
@@ -580,23 +601,3 @@ def save_stats(stats_dict, output_path):
     """Guarda estadísticas en un archivo JSON"""
     save_to_json(stats_dict, output_path)
     logger.info(f"Estadísticas guardadas en {output_path}")
-
-def check_internet_connection():
-    """
-    Verifica si hay conexión a internet disponible usando un ping a Google.
-    
-    Returns:
-        bool: True si hay conexión, False si no hay
-    """
-    import socket
-    try:
-        # Intenta conectar a Google DNS para verificar conexión
-        socket.create_connection(("8.8.8.8", 53), timeout=3)
-        return True
-    except OSError:
-        try:
-            # Segundo intento a Cloudflare
-            socket.create_connection(("1.1.1.1", 53), timeout=3)
-            return True
-        except OSError:
-            return False
