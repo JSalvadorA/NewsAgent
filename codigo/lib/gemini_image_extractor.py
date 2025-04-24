@@ -104,7 +104,25 @@ class GeminiImageExtractor:
                 logger.error(error_msg)
                 raise ValueError(error_msg)
         
+        # Asegurar que la API key sea válida
         try:
+            # Si es un diccionario, intentar extraer la clave
+            if isinstance(api_key, dict):
+                if 'key' in api_key:
+                    api_key = api_key['key']
+                elif 'api_key' in api_key:
+                    api_key = api_key['api_key']
+                else:
+                    api_key = str(api_key)
+            
+            # Asegurar que sea string y eliminar espacios en blanco
+            if api_key is not None:
+                api_key = str(api_key).strip()
+            
+            if not api_key:
+                raise ValueError("API key vacía o inválida")
+                
+            # Configurar Gemini con la key limpia
             genai.configure(api_key=api_key)
             logger.info(f"API Gemini configurada correctamente con modelo: {model_name}")
         except Exception as e:
@@ -137,27 +155,64 @@ class GeminiImageExtractor:
                 logger.error(f"Error al abrir/verificar imagen {os.path.basename(image_path)}: {img_err}")
                 return None
             
-            # Enviar a Gemini
-            model = genai.GenerativeModel(self.model_name)
-            logger.info(f"Procesando con Gemini: {os.path.basename(image_path)}...")
-            response = model.generate_content([self.prompt, img], request_options={'timeout': 180})
-            
-            # Procesar respuesta
-            if response.parts:
-                if hasattr(response, 'text') and response.text:
-                    return response.text.strip()
+            # Enviar a Gemini con manejo de excepciones mejorado
+            try:
+                # Crear modelo con timeout aumentado
+                model = genai.GenerativeModel(
+                    self.model_name,
+                    safety_settings=[],  # Configuración de seguridad mínima
+                    generation_config={"temperature": 0.0}  # Configuración para evitar creatividad
+                )
+                
+                # Registrar información
+                logger.info(f"Procesando con Gemini: {os.path.basename(image_path)}...")
+                
+                # Generar contenido con reintentos
+                max_retries = 2
+                retry_count = 0
+                last_error = None
+                
+                while retry_count <= max_retries:
+                    try:
+                        # Aumentar timeout para imágenes grandes
+                        response = model.generate_content(
+                            [self.prompt, img],
+                            request_options={'timeout': 240}  # 4 minutos de timeout
+                        )
+                        break  # Si llega aquí, se procesó correctamente
+                    except Exception as retry_err:
+                        last_error = retry_err
+                        retry_count += 1
+                        if retry_count <= max_retries:
+                            logger.warning(f"Reintento {retry_count}/{max_retries} tras error: {type(retry_err).__name__}")
+                            time.sleep(2)  # Breve pausa entre reintentos
                 else:
-                    logger.warning(f"Respuesta sin texto para {os.path.basename(image_path)}")
+                    # Si sale del bucle por agotarse los reintentos
+                    raise last_error if last_error else ValueError("Error en todos los reintentos")
+                
+                # Procesar respuesta
+                if response.parts:
+                    if hasattr(response, 'text') and response.text:
+                        return response.text.strip()
+                    else:
+                        logger.warning(f"Respuesta sin texto para {os.path.basename(image_path)}")
+                        return None
+                else:
+                    reason = "Razón desconocida"
+                    try:
+                        if response.prompt_feedback and response.prompt_feedback.block_reason:
+                            reason = f"Bloqueado por: {response.prompt_feedback.block_reason}"
+                    except Exception:
+                        pass
+                    logger.warning(f"Respuesta sin partes de texto. {reason}")
                     return None
-            else:
-                reason = "Razón desconocida"
-                try:
-                    if response.prompt_feedback and response.prompt_feedback.block_reason:
-                        reason = f"Bloqueado por: {response.prompt_feedback.block_reason}"
-                except Exception:
-                    pass
-                logger.warning(f"Respuesta sin partes de texto. {reason}")
-                return None
+            
+            except Exception as api_err:
+                logger.error(f"Error de API Gemini: {type(api_err).__name__} - {api_err}")
+                # Verificar si es un error de autenticación
+                if "auth" in str(api_err).lower() or "key" in str(api_err).lower() or "credential" in str(api_err).lower():
+                    logger.error("Posible problema con la clave API de Gemini. Verifique el formato en .env")
+                raise api_err
                 
         except Exception as e:
             logger.error(f"Error en API Gemini procesando {os.path.basename(image_path)}: {type(e).__name__} - {e}")

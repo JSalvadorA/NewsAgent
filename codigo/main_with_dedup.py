@@ -6,6 +6,11 @@ import logging
 from datetime import datetime
 import time
 import json
+import glob
+import hashlib
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections import defaultdict
+import concurrent.futures
 
 # Asegurarse de que el directorio 'lib' esté en el path para imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -42,9 +47,11 @@ from lib.pdf_processor import extract_links_from_pdf
 from lib.url_manager import classify_urls
 from lib.history_tracker import HistoryTracker
 from lib.html_scraper import HTMLScraper
-from lib.image_processor import ImageProcessor
-from lib.facebook_processor_dedup_improved import FacebookProcessorWithDedup  # Usar versión mejorada con deduplicación
+from process_pending_images import EnhancedImageProcessor
 from lib.text_extractor import extract_and_save_pdf_text
+from lib.facebook_processor_dedup_improved import FacebookProcessorWithDedup
+from lib.history_tracker import HistoryTracker
+from lib.config_manager import get_paths
 
 # -------------------------------
 # Función principal de orquestación
@@ -63,8 +70,10 @@ def run_pipeline(custom_date_str=None):
     # --- 1. Cargar Configuración y Rutas ---
     try:
         config_manager = get_config(project_root)
-        paths = config_manager.generate_paths(custom_date=today_date_for_filename)
         config = config_manager.config
+        
+        # Importar get_paths directamente ya que es una función independiente
+        paths = get_paths(config, custom_date=today_date_for_filename)
         
         # Añadir configuración de deduplicación si no existe
         if "facebook_dedup" not in config:
@@ -90,10 +99,10 @@ def run_pipeline(custom_date_str=None):
         full_config_for_components = {'paths': paths, **config}
         history_tracker = HistoryTracker(paths['history_file'])
         html_scraper = HTMLScraper(full_config_for_components)
-        image_processor = ImageProcessor(full_config_for_components)
+        image_processor = EnhancedImageProcessor(config)
         # Usar procesador de Facebook con deduplicación
         facebook_processor = FacebookProcessorWithDedup(full_config_for_components)
-        logger.info("Componentes inicializados (History, Scraper, ImageProcessor, FacebookProcessorWithDedup).")
+        logger.info("Componentes inicializados (History, Scraper, ImageProcessor, FacebookProcessor).")
     except Exception as e:
          logger.critical(f"Error fatal inicializando componentes: {e}", exc_info=True)
          if 'html_scraper' in locals() and hasattr(html_scraper, 'close_selenium_driver'):
@@ -107,7 +116,7 @@ def run_pipeline(custom_date_str=None):
         "stats": {}
     }
     all_links = []
-    downloaded_image_metadata = {} # Definir fuera del try para el finally
+    downloaded_image_metadata = {}  # Inicializar como diccionario vacío
     img_down_duration = 0
     html_scrap_duration = 0
     img_api_duration = 0
@@ -199,55 +208,65 @@ def run_pipeline(custom_date_str=None):
                  history_tracker.add_processed_urls(list(processed_data["html"].keys()))
         else:
             logger.info("No hay nuevas URLs HTML para scrapear.")
-            
+        
         # --- 8. Procesar Imágenes Descargadas (API) ---
         logger.info("--- Paso 6: Procesando Imágenes Descargadas (API) ---")
         
-        # Comprobar si hay imágenes descargadas, ya sea de la ejecución actual o existentes
+        # Verificar si hay imágenes para procesar, ya sea nuevas o existentes
         if downloaded_image_metadata:
-            # Imágenes descargadas en esta ejecución
-            img_api_start = time.time()
-            processed_data["images_api"] = image_processor.process_downloaded_images_with_api(downloaded_image_metadata)
-            img_api_duration = time.time() - img_api_start
-            logger.info(f"Procesamiento API de imágenes completado en {img_api_duration:.2f} seg.")
-        else:
-            # Verificar si hay imágenes existentes en la carpeta de descargas
-            images_dir = paths.get('image_download_dir')
-            if images_dir and os.path.exists(images_dir):
-                # Listar archivos de imagen en la carpeta de fecha (puede haber subcarpetas)
-                image_files = []
-                for root, dirs, files in os.walk(images_dir):
-                    for file in files:
-                        if file.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp')):
-                            image_files.append(os.path.join(root, file))
+            # Verificar primero si hay alguna imagen descargada correctamente
+            valid_images = [meta for meta in downloaded_image_metadata.values() 
+                           if "error" not in meta and meta.get("filepath") and os.path.exists(meta.get("filepath"))]
+            
+            if valid_images:
+                # Si hay nuevas imágenes descargadas válidas, procesarlas
+                logger.info(f"Procesando {len(valid_images)} imágenes recién descargadas")
                 
-                # Si hay un archivo de texto de imágenes pero está vacío o no existe
-                output_json_path = os.path.join(images_dir, "texto_imagenes_api.json")
-                process_images = bool(image_files) and (not os.path.exists(output_json_path) or os.path.getsize(output_json_path) == 0)
+                # Crear un directorio específico para esta fecha si no existe
+                date_image_dir = paths.get('image_download_dir')
+                if date_image_dir and not os.path.exists(date_image_dir):
+                    os.makedirs(date_image_dir, exist_ok=True)
+                    logger.info(f"Creado directorio para imágenes: {date_image_dir}")
                 
-                if process_images:
-                    logger.info(f"Encontradas {len(image_files)} imágenes existentes sin procesar en {images_dir}")
-                    # Crear metadata similar a la que genera image_processor.download_images_parallel
-                    existing_metadata = {}
-                    for idx, img_path in enumerate(image_files, 1):
-                        img_file = os.path.basename(img_path)
-                        img_url = f"file://{img_path}"  # URL ficticia para identificación
-                        existing_metadata[img_url] = {
-                            "filepath": img_path,
-                            "filename": img_file,
-                            "content_type": "image/jpeg",  # Asumimos JPEG por defecto
-                            "downloaded_from_cache": True
-                        }
+                # Usar process_pending_images que ya maneja todo internamente
+                img_api_start = time.time()
+                image_processor.process_pending_images([today_date_for_filename])
+                img_api_duration = time.time() - img_api_start
+                
+                # Cargar resultados para estadísticas
+                try:
+                    image_api_results_json = paths.get('image_api_results_json')
+                    if os.path.exists(image_api_results_json):
+                        with open(image_api_results_json, 'r', encoding='utf-8') as f:
+                            processed_data["images_api"] = json.load(f)
+                        logger.info(f"Resultados de imágenes cargados de {image_api_results_json}: {len(processed_data['images_api'])} imágenes")
+                except Exception as e:
+                    logger.warning(f"No se pudieron cargar resultados de imágenes: {e}")
                     
-                    # Procesar con la API
-                    img_api_start = time.time()
-                    processed_data["images_api"] = image_processor.process_downloaded_images_with_api(existing_metadata)
-                    img_api_duration = time.time() - img_api_start
-                    logger.info(f"Procesamiento API de imágenes existentes completado en {img_api_duration:.2f} seg.")
-                else:
-                    logger.info("No hubo imágenes descargadas o ya están procesadas.")
+                logger.info(f"Procesamiento API de imágenes completado en {img_api_duration:.2f} seg.")
             else:
-                logger.info("No hubo imágenes descargadas para procesar con la API.")
+                logger.warning("Ninguna imagen se descargó correctamente, no hay nada que procesar.")
+        else:
+            # No hay imágenes nuevas, verificar si hay existentes sin procesar
+            logger.info("No hay imágenes nuevas descargadas, verificando existentes...")
+            
+            # El procesador mejorado buscará imágenes en el directorio correcto y las procesará
+            img_api_start = time.time()
+            image_processor.process_pending_images([today_date_for_filename])
+            img_api_duration = time.time() - img_api_start
+            
+            # Cargar resultados si existen
+            try:
+                image_api_results_json = paths.get('image_api_results_json')
+                if os.path.exists(image_api_results_json):
+                    with open(image_api_results_json, 'r', encoding='utf-8') as f:
+                        processed_data["images_api"] = json.load(f)
+                    if processed_data["images_api"]:
+                        logger.info(f"Cargados {len(processed_data['images_api'])} resultados de imágenes existentes")
+            except Exception as e:
+                logger.warning(f"No se pudieron cargar resultados de imágenes: {e}")
+            
+            logger.info(f"Verificación y procesamiento de imágenes existentes completado en {img_api_duration:.2f} seg.")
         
         # --- 9. Procesar URLs de Facebook ---
         logger.info("--- Paso 7: Procesando URLs de Facebook (CON DEDUPLICACIÓN) ---")
@@ -261,37 +280,11 @@ def run_pipeline(custom_date_str=None):
             if "facebook.com" in link.get("URL", "").lower() or "fb.com" in link.get("URL", "").lower():
                 facebook_links.append(link)
         
-        # 2. Adicionalmente buscar en archivos sociales guardados (_unprocessed.json)
-        social_dir = os.path.join(project_root, 'input', 'Social')
-        if os.path.exists(social_dir):
-            try:
-                # Encontrar todos los archivos JSON _unprocessed
-                social_files = [f for f in os.listdir(social_dir) if f.endswith('_unprocessed.json')]
-                
-                for social_file in social_files:
-                    # Saltar el archivo actual ya procesado
-                    if social_file == f"social_links_{today_date_for_filename}_unprocessed.json":
-                        continue
-                        
-                    try:
-                        social_file_path = os.path.join(social_dir, social_file)
-                        logger.info(f"Leyendo archivo social adicional: {social_file}")
-                        
-                        with open(social_file_path, 'r', encoding='utf-8') as f:
-                            file_links = json.load(f)
-                        
-                        for link in file_links:
-                            url = link.get("URL", "")
-                            if ("facebook.com" in url.lower() or "fb.com" in url.lower()) and \
-                               not any(l.get("URL") == url for l in facebook_links):
-                                # Verificar si ya ha sido procesada esta URL
-                                if not history_tracker.is_url_processed(url):
-                                    facebook_links.append(link)
-                                    logger.info(f"Añadida URL de Facebook de archivo {social_file}: {url}")
-                    except Exception as e:
-                        logger.warning(f"Error procesando archivo social {social_file}: {e}")
-            except Exception as e:
-                logger.warning(f"Error al buscar archivos sociales: {e}")
+        # Limitar el número de URLs de Facebook para evitar congelamientos
+        max_facebook_urls = 5  # Procesar máximo 5 URLs de Facebook a la vez
+        if len(facebook_links) > max_facebook_urls:
+            logger.warning(f"Limitando procesamiento a {max_facebook_urls} URLs de Facebook para evitar congelamientos")
+            facebook_links = facebook_links[:max_facebook_urls]
         
         if facebook_links:
             logger.info(f"Encontradas {len(facebook_links)} URLs de Facebook para procesar")
@@ -309,8 +302,22 @@ def run_pipeline(custom_date_str=None):
             # Extraer solo las URLs de los diccionarios
             fb_urls = [link["URL"] for link in facebook_links]
             
-            # CAMBIO AQUÍ: Usamos el procesador con deduplicación
-            processed_data["facebook"] = facebook_processor.process_facebook_urls_parallel(fb_urls, today_date_for_filename)
+            # Establecer un timeout para evitar congelamientos
+            try:
+                # CAMBIO AQUÍ: Usamos el procesador con deduplicación con timeout
+                with ThreadPoolExecutor(max_workers=2) as executor:
+                    future = executor.submit(facebook_processor.process_facebook_urls_parallel, fb_urls, today_date_for_filename)
+                    try:
+                        # Establecer un timeout de 3 minutos para cada URL
+                        timeout_seconds = 180 * len(fb_urls)
+                        processed_data["facebook"] = future.result(timeout=timeout_seconds)
+                    except concurrent.futures.TimeoutError:
+                        logger.error(f"Timeout después de {timeout_seconds} segundos procesando URLs de Facebook")
+                        processed_data["facebook"] = {}
+            except Exception as e:
+                logger.error(f"Error procesando URLs de Facebook: {e}")
+                processed_data["facebook"] = {}
+                
             facebook_duration = time.time() - facebook_start
             
             # Mostrar estadísticas de deduplicación
@@ -438,7 +445,8 @@ def run_pipeline(custom_date_str=None):
                 logger.warning(f"Error cargando datos HTML desde archivo: {e}")
         
         # Si processed_data["images_api"] está vacío, intentar cargar desde archivo si existe
-        image_api_results_json = os.path.join(paths.get('image_download_dir', ''), "texto_imagenes_api.json")
+        # CAMBIO: Usar la ruta estandarizada para el archivo de resultados
+        image_api_results_json = paths.get('image_api_results_json')
         if not processed_data["images_api"] and os.path.exists(image_api_results_json):
             try:
                 with open(image_api_results_json, 'r', encoding='utf-8') as f:

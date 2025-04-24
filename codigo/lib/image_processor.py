@@ -6,6 +6,7 @@ import time
 import random
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+import json
 
 # Importar utilidades locales
 from .cache_utils import get_cache_key, load_from_cache, save_to_cache
@@ -63,6 +64,10 @@ class ImageProcessor:
         self.session = create_session_with_retries()
         self.headers = config.get('headers', {}) # Usar headers de config (User-Agent)
         self.max_workers = config.get('max_workers', 5)
+        
+        # Inicializar caché de hashes para deduplicación
+        self.hash_to_result = {}
+        self.content_hash_cache = {}
 
         # Inicializar cliente Gemini API
         self.api_client = None
@@ -256,155 +261,163 @@ class ImageProcessor:
 
         return downloaded_metadata
 
-    def process_downloaded_images_with_api(self, downloaded_metadata):
+    def process_downloaded_images_with_api(self, downloaded_images_metadata):
         """
-        Procesa las imágenes que se descargaron correctamente utilizando la API externa.
-        Gestiona caché basado en el hash del contenido de la imagen.
-        Procesa máximo 3 imágenes y hace una pausa de 60 segundos entre lotes.
-        Retorna una lista de resultados de la API.
+        Procesa imágenes descargadas usando el cliente de API.
+        
+        Args:
+            downloaded_images_metadata: Diccionario con metadatos de imágenes descargadas
+            
+        Returns:
+            list: Lista de resultados del procesamiento
         """
+        if not downloaded_images_metadata:
+            logger.warning("No hay metadatos de imágenes para procesar.")
+            return []
+            
         if not self.api_client:
-             logger.warning("Cliente API no inicializado. Saltando procesamiento de texto de imágenes.")
-             return []
-        if not downloaded_metadata:
-             logger.info("No hay metadatos de imágenes descargadas para procesar con API.")
+            logger.warning("Cliente API no inicializado. No se pueden procesar imágenes.")
              return []
 
-        images_to_process = []
-        for url, meta in downloaded_metadata.items():
-             if "error" not in meta and meta.get("filepath") and os.path.exists(meta["filepath"]):
-                 images_to_process.append(meta) # Añadir metadatos completos
-
-        if not images_to_process:
-             logger.info("No se encontraron imágenes descargadas válidas para procesar con API.")
-             return []
-
-        total_images = len(images_to_process)
-        processed_count = 0
-        api_results = []
-        start_time = time.time()
-        batch_start_time = time.time()
-
-        logger.info(f"Iniciando procesamiento con API para {total_images} imágenes...")
-        output_json_path = self.paths.get("image_api_results_json") # Path para guardar resultados API
-
-        # Procesar imágenes en lotes de 3 (o 2 si el procesamiento es extenso)
-        max_batch_size = 3
-        current_batch = []
-        batch_number = 1
+        # Obtener fecha del directorio o usar la actual
+        image_dir = next(iter(downloaded_images_metadata.values())).get('filepath', '')
+        date_str = self._extract_date_from_path(image_dir)
         
-        # Clasificar imágenes por tamaño para estimar complejidad
-        small_images = []
-        large_images = []
-        for meta in images_to_process:
-            # Si el tamaño está disponible en los metadatos
-            file_size_mb = meta.get('size', 0) / (1024 * 1024) if 'size' in meta else 0
-            
-            # Si no está disponible, intentar obtener del sistema de archivos
-            if file_size_mb <= 0 and os.path.exists(meta.get('filepath', '')):
-                try:
-                    file_size_mb = os.path.getsize(meta['filepath']) / (1024 * 1024)
-                except:
-                    # Si falla, asumir que es una imagen grande
-                    file_size_mb = 5  # Asumir 5MB
-
-            # Clasificar
-            if file_size_mb > 1.5:  # Si es mayor a 1.5MB, considerar "grande"
-                large_images.append(meta)
-            else:
-                small_images.append(meta)
-        
-        # Primero procesar imágenes pequeñas (en lotes de 3)
-        logger.info(f"Procesando primero {len(small_images)} imágenes pequeñas (en lotes de 3)...")
-        for meta in small_images:
-            current_batch.append(meta)
-            
-            # Procesar el lote cuando alcanza el tamaño máximo o es el último elemento
-            if len(current_batch) >= max_batch_size or meta == small_images[-1]:
-                logger.info(f"Procesando lote #{batch_number} con {len(current_batch)} imágenes pequeñas")
-                batch_results = []
-                
-                # Procesar cada imagen en el lote
-                for batch_meta in current_batch:
-                    result = self._process_single_image_api_with_cache(batch_meta)
-                    processed_count += 1
-                    
-                    if result:
-                        batch_results.append(result)
-                        api_results.append(result)
-                        
-                        if result.get("error"):
-                            logger.warning(f"Error de API procesando {batch_meta.get('filename', 'N/A')}: {result['error']}")
-                        else:
-                            logger.info(f"[{processed_count}/{total_images}] Procesada imagen con API: {batch_meta.get('filename', 'N/A')}")
-                
-                # Verificar y mostrar progreso
-                batch_duration = time.time() - batch_start_time
-                logger.info(f"Lote #{batch_number} completado en {batch_duration:.2f} seg. ({len(batch_results)} imágenes)")
-                
-                # Pausa de 60 segundos entre lotes, excepto en el último lote de imágenes pequeñas
-                if meta != small_images[-1] or len(large_images) > 0:
-                    logger.info(f"Pausa de 60 segundos antes del próximo lote...")
-                    time.sleep(60)
-                
-                # Reiniciar para el próximo lote
-                current_batch = []
-                batch_number += 1
-                batch_start_time = time.time()
-        
-        # Luego procesar imágenes grandes (en lotes de 2)
-        if large_images:
-            logger.info(f"Procesando {len(large_images)} imágenes grandes (en lotes de 2)...")
-            max_batch_size = 2  # Reducir tamaño del lote para imágenes grandes
-            current_batch = []
-            
-            for meta in large_images:
-                current_batch.append(meta)
-                
-                # Procesar el lote cuando alcanza el tamaño máximo o es el último elemento
-                if len(current_batch) >= max_batch_size or meta == large_images[-1]:
-                    logger.info(f"Procesando lote #{batch_number} con {len(current_batch)} imágenes grandes")
-                    batch_results = []
-                    
-                    # Procesar cada imagen en el lote
-                    for batch_meta in current_batch:
-                        result = self._process_single_image_api_with_cache(batch_meta)
-                        processed_count += 1
-                        
-                        if result:
-                            batch_results.append(result)
-                            api_results.append(result)
-                            
-                            if result.get("error"):
-                                logger.warning(f"Error de API procesando {batch_meta.get('filename', 'N/A')}: {result['error']}")
-                            else:
-                                logger.info(f"[{processed_count}/{total_images}] Procesada imagen grande con API: {batch_meta.get('filename', 'N/A')}")
-                    
-                    # Verificar y mostrar progreso
-                    batch_duration = time.time() - batch_start_time
-                    logger.info(f"Lote #{batch_number} completado en {batch_duration:.2f} seg. ({len(batch_results)} imágenes grandes)")
-                    
-                    # Pausa de 60 segundos entre lotes, excepto en el último lote
-                    if meta != large_images[-1]:
-                        logger.info(f"Pausa de 60 segundos antes del próximo lote...")
-                        time.sleep(60)
-                    
-                    # Reiniciar para el próximo lote
-                    current_batch = []
-                    batch_number += 1
-                    batch_start_time = time.time()
-
-        # Guardar los resultados de la API
-        if output_json_path and api_results:
-             save_to_json(api_results, output_json_path)
-             logger.info(f"Resultados de API guardados en: {output_json_path}")
+        # Construir ruta para guardar resultados (utilizando rutas estandarizadas)
+        # CAMBIO: Usar rutas estandarizadas según config_manager.py
+        if self.paths and 'image_api_results_json' in self.paths:
+            output_json = self.paths['image_api_results_json']
         else:
-              logger.warning("No se especificó ruta para guardar resultados de la API de imágenes o no hay resultados.")
-
-        end_time = time.time()
-        logger.info(f"Procesamiento API completado para {processed_count}/{total_images} imágenes en {end_time - start_time:.2f} segundos.")
-
-        return api_results
+            # Ruta de respaldo si no está en paths
+            output_dir = os.path.dirname(image_dir)
+            output_json = os.path.join(output_dir, "texto_imagenes_api.json")
+        
+        # Verificar si ya existe y tiene contenido
+        existing_results = []
+        if os.path.exists(output_json) and os.path.getsize(output_json) > 0:
+            try:
+                with open(output_json, 'r', encoding='utf-8') as f:
+                    existing_results = json.load(f)
+                logger.info(f"Cargados {len(existing_results)} resultados existentes de {output_json}")
+            except Exception as e:
+                logger.error(f"Error leyendo resultados existentes: {e}")
+        
+        processed_paths = {result.get('image_path') for result in existing_results if 'image_path' in result}
+        
+        # Preparar imágenes a procesar
+        pending_images = []
+        for url, metadata in downloaded_images_metadata.items():
+            filepath = metadata.get('filepath')
+            if not filepath or not os.path.exists(filepath):
+                continue
+                
+            if filepath in processed_paths:
+                logger.info(f"Imagen ya procesada, saltando: {os.path.basename(filepath)}")
+                continue
+                
+            pending_images.append({
+                'filepath': filepath,
+                'url': url
+            })
+        
+        logger.info(f"Procesando {len(pending_images)} imágenes con API")
+        
+        # Inicializar resultados combinando existentes con nuevos
+        all_results = existing_results.copy()
+        
+        batch_size = min(self.config.get('batch_size', 10), 20)  # Limitar a 20 máximo
+        pause_seconds = self.config.get('pause_seconds', 10)
+        total_batches = (len(pending_images) + batch_size - 1) // batch_size
+        
+        logger.info(f"Procesando en {total_batches} lotes de {batch_size} imágenes con {pause_seconds}s de pausa")
+        
+        # Procesar en lotes
+        for batch_idx in range(0, len(pending_images), batch_size):
+            batch = pending_images[batch_idx:batch_idx + batch_size]
+            logger.info(f"Procesando lote {batch_idx//batch_size + 1}/{total_batches} ({len(batch)} imágenes)")
+            
+            start_time = time.time()
+            for img_data in batch:
+                filepath = img_data['filepath']
+                url = img_data['url']
+                
+                try:
+                    # Comprobar si la imagen ya tiene un resultado calculado (hash)
+                    if filepath in self.hash_to_result:
+                        logger.info(f"Usando resultado en caché para {os.path.basename(filepath)}")
+                        result = self.hash_to_result[filepath].copy()
+                    else:
+                        # Calcular hash de la imagen para evitar reprocesamiento de contenido duplicado
+                        img_hash = self._compute_image_hash(filepath)
+                        
+                        # Buscar si ya hemos procesado una imagen con este hash
+                        if img_hash in self.content_hash_cache:
+                            cached_path = self.content_hash_cache[img_hash]
+                            # Encontrar el resultado para esta imagen
+                            cached_result = next((r for r in all_results if r.get('image_path') == cached_path), None)
+                            if cached_result:
+                                # Clonar resultado pero con la nueva ruta
+                                result = cached_result.copy()
+                                result['image_path'] = filepath
+                                result['is_content_duplicate'] = True
+                                result['original_image'] = cached_path
+                                logger.info(f"Contenido duplicado detectado para {os.path.basename(filepath)}")
+                            else:
+                                # Si no encontramos el resultado en caché, procesar normalmente
+                                result = self._process_single_image(filepath, url)
+                                if img_hash:
+                                    self.content_hash_cache[img_hash] = filepath
+                        else:
+                            # Procesar imagen y guardar resultado en caché
+                            result = self._process_single_image(filepath, url)
+                            if img_hash:
+                                self.content_hash_cache[img_hash] = filepath
+                    
+                    # Guardar en resultados
+                    all_results.append(result)
+                    
+                    # Guardar parcialmente después de cada imagen
+                    try:
+                        with open(output_json, 'w', encoding='utf-8') as f:
+                            json.dump(all_results, f, ensure_ascii=False, indent=2)
+                    except Exception as e:
+                        logger.error(f"Error guardando resultados parciales: {e}")
+                    
+                except Exception as e:
+                    logger.error(f"Error procesando imagen {filepath}: {e}")
+                    error_result = {
+                        "image_path": filepath,
+                        "error": str(e),
+                        "success": False,
+                        "processed_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    }
+                    all_results.append(error_result)
+            
+            batch_time = time.time() - start_time
+            logger.info(f"Lote completado en {batch_time:.2f}s")
+            
+            # Guardar resultados parciales después de cada lote
+            try:
+                with open(output_json, 'w', encoding='utf-8') as f:
+                    json.dump(all_results, f, ensure_ascii=False, indent=2)
+                logger.info(f"Resultados parciales guardados ({len(all_results)} total)")
+            except Exception as e:
+                logger.error(f"Error guardando resultados parciales: {e}")
+            
+            # Pausa entre lotes (excepto el último)
+            if batch_idx + batch_size < len(pending_images):
+                logger.info(f"Pausa de {pause_seconds}s antes del siguiente lote...")
+                time.sleep(pause_seconds)
+        
+        # Guardar resultados finales
+        try:
+            with open(output_json, 'w', encoding='utf-8') as f:
+                json.dump(all_results, f, ensure_ascii=False, indent=2)
+            logger.info(f"Resultados guardados en {output_json}")
+        except Exception as e:
+            logger.error(f"Error guardando resultados: {e}")
+        
+        return all_results
 
     def _process_single_image_api_with_cache(self, image_meta):
          """
@@ -556,7 +569,92 @@ class ImageProcessor:
             logger.error(f"Error eliminando imagen de la lista de omitidas: {e}")
             return False
 
+    def _extract_date_from_path(self, path):
+        """
+        Extrae la fecha del directorio de una ruta de archivo
+        
+        Args:
+            path: Ruta del archivo
+            
+        Returns:
+            str: Fecha en formato ddmmyyyy o fecha actual si no se puede extraer
+        """
+        try:
+            if not path:
+                return datetime.now().strftime("%d%m%Y")
+            
+            # Intenta encontrar un patrón de fecha (8 dígitos) en la ruta
+            import re
+            date_match = re.search(r'(\d{8})', path)
+            if date_match:
+                return date_match.group(1)
+            
+            # Si no encuentra un patrón, usa la fecha actual
+            return datetime.now().strftime("%d%m%Y")
+        except Exception as e:
+            logger.error(f"Error extrayendo fecha de ruta {path}: {e}")
+            return datetime.now().strftime("%d%m%Y")
+    
+    def _compute_image_hash(self, filepath):
+        """
+        Calcula un hash perceptual para la imagen
+        
+        Args:
+            filepath: Ruta de la imagen
+            
+        Returns:
+            str: Hash de la imagen o None si hay error
+        """
+        try:
+            import hashlib
+            # Método simple por ahora: MD5 del contenido del archivo
+            with open(filepath, 'rb') as f:
+                return hashlib.md5(f.read()).hexdigest()
+        except Exception as e:
+            logger.error(f"Error calculando hash para {filepath}: {e}")
+            return None
+    
+    def _process_single_image(self, filepath, url=None):
+        """
+        Procesa una sola imagen con la API
+        
+        Args:
+            filepath: Ruta al archivo de imagen
+            url: URL original de la imagen (opcional)
+            
+        Returns:
+            dict: Resultado del procesamiento
+        """
+        if not self.api_client:
+            return {
+                "image_path": filepath,
+                "error": "Cliente API no inicializado",
+                "success": False,
+                "processed_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+        
+        try:
+            # Obtener texto de la imagen
+            extracted_text = self.api_client.extract_text_from_image(filepath)
+            
+            # Crear resultado
+            return {
+                "image_path": filepath,
+                "original_url": url,
+                "processed_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "detected_text": extracted_text if extracted_text else "",
+                "success": bool(extracted_text),
+                "file_size_mb": round(os.path.getsize(filepath) / (1024 * 1024), 2)
+            }
+        except Exception as e:
+            logger.error(f"Error procesando imagen {filepath}: {e}")
+            return {
+                "image_path": filepath,
+                "error": str(e),
+                "success": False,
+                "processed_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+
 
 # Import hashlib aquí si no está global
 import hashlib
-import json  # Asegurar que json está importado

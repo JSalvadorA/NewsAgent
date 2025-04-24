@@ -115,20 +115,34 @@ def load_config(project_root, config_path="config.yaml", credentials_path="crede
 
 def get_paths(config, custom_date=None):
     """
-    Genera las rutas necesarias basadas en la configuración y la fecha.
+    Genera las rutas de archivos basadas en la configuración.
+    
+    Args:
+        config: Diccionario de configuración
+        custom_date: Fecha personalizada (ddmmyyyy)
+        
+    Returns:
+        dict: Diccionario con todas las rutas de archivos del proyecto
     """
+    base_dir = config.get('project_root', os.getcwd())
+    
+    # Determinar la fecha para los nombres de archivo
     if custom_date:
-        # Permite pasar un objeto datetime o una cadena 'ddmmyyyy'
-        if isinstance(custom_date, datetime):
-            today_str = custom_date.strftime('%d%m%Y')
-        else:
-            today_str = custom_date # Asume que ya está en formato ddmmyyyy
+        # Fecha personalizada proporcionada
+        today_str = custom_date  # Asumimos formato ddmmyyyy
     else:
-        today_str = datetime.today().strftime('%d%m%Y')
-
-    base_dir = config["base_dir"]
+        # Fecha actual
+        today_str = datetime.now().strftime("%d%m%Y")
+    
+    # Configurar directorios principales
     input_dir = os.path.join(base_dir, "input")
     image_base_dir = os.path.join(input_dir, "Images")
+    output_dir = os.path.join(base_dir, "output")
+    
+    # ESTANDARIZACIÓN DE RUTAS: Unificar la ubicación del archivo de resultados de imágenes
+    # Siempre colocarlo en output/{fecha}/images/texto_imagenes_api.json
+    # Esto garantiza consistencia en todo el sistema
+    image_output_dir = os.path.join(output_dir, today_str, "images")
 
     paths = {
         "project_root": base_dir,
@@ -136,8 +150,8 @@ def get_paths(config, custom_date=None):
         "links_extracted_csv": os.path.join(input_dir, "In", f"links_extracted_{today_str}.csv"),
         "scraped_texts_json": os.path.join(input_dir, "Out", f"scraped_texts_{today_str}.json"),
         "image_links_json": os.path.join(image_base_dir, f"image_links_{today_str}.json"),
-        "image_download_dir": os.path.join(image_base_dir, "downloads", today_str),
-        "image_api_results_json": os.path.join(image_base_dir, "downloads", today_str, "texto_imagenes_api.json"),
+        "image_download_dir": image_output_dir,  # MODIFICADO para usar output/fecha/images en vez de input/Images/downloads/fecha
+        "image_api_results_json": os.path.join(image_output_dir, "texto_imagenes_api.json"),  # ESTANDARIZADO
         "social_links_json": os.path.join(input_dir, "Social", f"social_links_{today_str}.json"), # Añadido para guardar links sociales
         "processing_stats_json": os.path.join(input_dir, "Stats", f"stats_{today_str}.json"),
         "history_file": os.path.join(base_dir, "codigo", "lib", "history", "processed_urls.json"), # Mover historial a lib/history
@@ -155,7 +169,6 @@ def get_paths(config, custom_date=None):
                     logger.debug(f"Directorio creado o ya existente: {dir_to_create}")
                  except OSError as e:
                     logger.error(f"Error creando directorio {dir_to_create}: {e}")
-
 
     return paths
 
