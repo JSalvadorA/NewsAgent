@@ -9,6 +9,8 @@
 # Directorios que no queremos incluir
 /cache/*
 /logs/*
+/output/*
+/temp/*
 
 # Archivos de Python estándar para ignorar
 __pycache__/
@@ -21,6 +23,7 @@ __pycache__/
 *.tmp
 *.log  # Si no está cubierto por /logs/*
 *.bak
+*.json  # Excepto si son configuraciones estáticas; usa ! para incluir excepciones si necesario, e.g., !config.json
 
 # Archivos temporales y de sistema
 .DS_Store
