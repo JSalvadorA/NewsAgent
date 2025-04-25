@@ -96,15 +96,16 @@ def run_pipeline(custom_date_str=None):
         # Importar get_paths directamente ya que es una función independiente
         paths = get_paths(config, custom_date=today_date_for_filename)
         
-        # Añadir configuración de deduplicación si no existe
-        if "facebook_dedup" not in config:
-            config["facebook_dedup"] = {
-                "enable_deduplication": True,
-                "similarity_threshold": 0.85,
-                "min_content_length": 100,
-                "normalize_urls": True,
-                "store_mapping": True
-            }
+        # Añadir o actualizar configuración de deduplicación
+        config["facebook_dedup"] = {
+            "enable_deduplication": True,
+            "similarity_threshold": 0.85,  # Umbral de similitud para detectar duplicados
+            "min_content_length": 100,    # Longitud mínima de contenido para comparar
+            "normalize_urls": True,       # Normalizar URLs eliminando parámetros de tracking
+            "store_mapping": True,        # Guardar mapeo de URLs duplicadas
+            "sample_size": 1000,         # Tamaño de muestra para comparar textos
+            "max_workers": 5             # Máximo de hilos para procesamiento paralelo
+        }
         
         logger.info("Configuración y rutas cargadas.")
         logger.debug(f"PDF de entrada: {paths['pdf_input']}")
@@ -301,11 +302,12 @@ def run_pipeline(custom_date_str=None):
             if "facebook.com" in link.get("URL", "").lower() or "fb.com" in link.get("URL", "").lower():
                 facebook_links.append(link)
         
-        # Limitar el número de URLs de Facebook para evitar congelamientos
-        max_facebook_urls = 5  # Procesar máximo 5 URLs de Facebook a la vez
-        if len(facebook_links) > max_facebook_urls:
-            logger.warning(f"Limitando procesamiento a {max_facebook_urls} URLs de Facebook para evitar congelamientos")
-            facebook_links = facebook_links[:max_facebook_urls]
+        # Procesar las URLs de Facebook en lotes para evitar congelamientos
+        max_facebook_urls_per_batch = 50
+        if len(facebook_links) > max_facebook_urls_per_batch:
+            logger.info(f"Procesando {len(facebook_links)} URLs de Facebook en lotes de {max_facebook_urls_per_batch}")
+        else:
+            logger.info(f"Procesando {len(facebook_links)} URLs de Facebook")
         
         if facebook_links:
             logger.info(f"Encontradas {len(facebook_links)} URLs de Facebook para procesar")
@@ -321,7 +323,10 @@ def run_pipeline(custom_date_str=None):
                 logger.error(f"Error creando directorio para PDFs: {e}")
             
             # Extraer solo las URLs de los diccionarios
-            fb_urls = [link["URL"] for link in facebook_links]
+            all_fb_urls = [link["URL"] for link in facebook_links]
+            
+            # Inicializar resultados de Facebook
+            processed_data["facebook"] = {}
             
             # Verificar conexión a internet antes de procesar Facebook
             internet_available = check_internet_connection()
@@ -329,42 +334,81 @@ def run_pipeline(custom_date_str=None):
                 logger.error("No hay conexión a internet disponible. Saltando procesamiento de Facebook.")
                 processed_data["facebook"] = {}
                 facebook_duration = 0
-                return
+                # Continuamos con el resto del proceso en lugar de salir completamente
             
-            # Establecer un timeout para evitar congelamientos
+            # Procesar URLs en lotes para evitar congelamientos
             try:
-                # CAMBIO AQUÍ: Usamos el procesador con deduplicación con timeout más corto
-                with ThreadPoolExecutor(max_workers=2) as executor:
-                    future = executor.submit(facebook_processor.process_facebook_urls_parallel, fb_urls, today_date_for_filename)
+                # Dividir las URLs en lotes
+                processed_urls_count = 0
+                batch_size = max_facebook_urls_per_batch
+                total_fb_urls = len(all_fb_urls)
+                
+                for batch_start in range(0, total_fb_urls, batch_size):
+                    batch_end = min(batch_start + batch_size, total_fb_urls)
+                    fb_urls_batch = all_fb_urls[batch_start:batch_end]
+                    batch_num = batch_start // batch_size + 1
+                    total_batches = (total_fb_urls + batch_size - 1) // batch_size
+                    
+                    logger.info(f"Procesando lote {batch_num}/{total_batches} con {len(fb_urls_batch)} URLs de Facebook")
+                    
+                    # Establecer timeout: 180 segundos (3 minutos) por URL, máximo 1 hora total
+                    timeout_seconds = min(3600, 180 * len(fb_urls_batch))
+                    
+                    # Intentar procesar el lote con timeout
+                    batch_start_time = time.time()
                     try:
-                        # Timeout más corto: 2 minutos por URL, máximo 10 minutos total
-                        timeout_seconds = min(600, 120 * len(fb_urls))
-                        logger.info(f"Procesando URLs de Facebook con timeout de {timeout_seconds} segundos")
-                        processed_data["facebook"] = future.result(timeout=timeout_seconds)
+                        with ThreadPoolExecutor(max_workers=5) as executor:
+                            future = executor.submit(facebook_processor.process_facebook_urls_parallel, fb_urls_batch, today_date_for_filename)
+                            batch_results = future.result(timeout=timeout_seconds)
+                            
+                            # Combinar resultados
+                            processed_data["facebook"].update(batch_results)
+                            processed_urls_count += len(batch_results)
+                            
+                            batch_duration = time.time() - batch_start_time
+                            logger.info(f"Lote {batch_num}/{total_batches} procesado en {batch_duration:.2f} segundos, {len(batch_results)} URLs procesadas")
                     except concurrent.futures.TimeoutError:
-                        logger.error(f"Timeout después de {timeout_seconds} segundos procesando URLs de Facebook")
-                        processed_data["facebook"] = {}
+                        logger.error(f"Timeout después de {timeout_seconds} segundos procesando lote {batch_num}. Continuando con el siguiente lote.")
+                    except Exception as e:
+                        logger.error(f"Error procesando lote {batch_num}: {e}")
+                
+                logger.info(f"Procesamiento de lotes completado. {processed_urls_count}/{total_fb_urls} URLs procesadas")
+                
             except Exception as e:
-                logger.error(f"Error procesando URLs de Facebook: {e}")
-                processed_data["facebook"] = {}
+                logger.error(f"Error en el procesamiento por lotes de Facebook: {e}")
+                # No sobreescribimos processed_data["facebook"] para mantener resultados parciales
                 
             facebook_duration = time.time() - facebook_start
             
             # Mostrar estadísticas de deduplicación
-            total_urls = len(fb_urls)
+            total_urls = len(all_fb_urls)
             unique_urls = sum(1 for result in processed_data["facebook"].values() if not result.get('is_duplicate') and not result.get('is_content_duplicate', False))
             duplicate_urls = total_urls - unique_urls
             
             logger.info(f"Procesamiento de URLs de Facebook completado en {facebook_duration:.2f} seg.")
             logger.info(f"URLs de Facebook: Total={total_urls}, Únicas={unique_urls}, Duplicadas={duplicate_urls}")
             
-            # Añadir URLs procesadas al historial (solo las procesadas realmente)
+            # Añadir URLs procesadas al historial
             if processed_data["facebook"]:
-                # Solo añadir URLs que no son duplicados 
-                facebook_processed_urls = [url for url, result in processed_data["facebook"].items() 
-                                          if result.get('success') and not result.get('is_duplicate')]
+                # Agregar URLs procesadas exitosamente al historial (incluyendo URLs originales de duplicados)
+                facebook_processed_urls = []
+                
+                # 1. Agregar URLs procesadas exitosamente
+                for url, result in processed_data["facebook"].items():
+                    if result.get('success') and not result.get('is_duplicate'):
+                        facebook_processed_urls.append(url)
+                    
+                # 2. Agregar URLs duplicadas pero que se procesaron correctamente
+                for url, result in processed_data["facebook"].items():
+                    if result.get('success') and result.get('is_duplicate') and result.get('duplicate_of'):
+                        # Agregar la URL original si está en los resultados y fue exitosa
+                        original_url = result.get('duplicate_of')
+                        if original_url in processed_data["facebook"] and processed_data["facebook"][original_url].get('success'):
+                            facebook_processed_urls.append(url)  # Agregar la URL duplicada al historial
+                
                 if facebook_processed_urls:
-                    history_tracker.add_processed_urls(facebook_processed_urls)
+                    processed_urls_count = history_tracker.add_processed_urls(facebook_processed_urls)
+                    logger.info(f"Agregadas {processed_urls_count} URLs de Facebook al historial")
         else:
             logger.info("No hay URLs de Facebook para procesar.")
 

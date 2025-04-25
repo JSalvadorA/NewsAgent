@@ -16,6 +16,12 @@ __pycache__/
 *$py.class
 .ipynb_checkpoints/
 
+## Ignorar archivos temporales adicionales (sugerencia nueva)
+# Ignora todos los archivos con extensiones comunes generadas, excepto PDFs
+*.tmp
+*.log  # Si no está cubierto por /logs/*
+*.bak
+
 # Archivos temporales y de sistema
 .DS_Store
 Thumbs.db

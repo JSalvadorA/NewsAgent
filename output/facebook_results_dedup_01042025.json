@@ -1,0 +1,49 @@
+{
+    "https://www.facebook.com/share/p/1HcKS3Gx1K/": {
+        "url": "https://www.facebook.com/share/p/1HcKS3Gx1K/",
+        "timestamp": "2025-04-24T18:06:56.337239",
+        "pdf_path": "C:\\Jerson\\SUNASS\\2025\\4_April\\NewsAgent\\base\\01042025\\01042025-1.pdf",
+        "success": true,
+        "error": null
+    },
+    "https://www.facebook.com/share/p/14SYgaCf1E/": {
+        "url": "https://www.facebook.com/share/p/1HcKS3Gx1K/",
+        "timestamp": "2025-04-24T18:06:56.337239",
+        "pdf_path": "C:\\Jerson\\SUNASS\\2025\\4_April\\NewsAgent\\base\\01042025\\01042025-1.pdf",
+        "success": true,
+        "error": null,
+        "is_duplicate": true,
+        "duplicate_of": "https://www.facebook.com/share/p/1HcKS3Gx1K/",
+        "processed": false
+    },
+    "https://www.facebook.com/share/p/1ALx52Xvrk/": {
+        "url": "https://www.facebook.com/share/p/1HcKS3Gx1K/",
+        "timestamp": "2025-04-24T18:06:56.337239",
+        "pdf_path": "C:\\Jerson\\SUNASS\\2025\\4_April\\NewsAgent\\base\\01042025\\01042025-1.pdf",
+        "success": true,
+        "error": null,
+        "is_duplicate": true,
+        "duplicate_of": "https://www.facebook.com/share/p/1HcKS3Gx1K/",
+        "processed": false
+    },
+    "https://www.facebook.com/share/p/1JJDD9PRtW/": {
+        "url": "https://www.facebook.com/share/p/1HcKS3Gx1K/",
+        "timestamp": "2025-04-24T18:06:56.337239",
+        "pdf_path": "C:\\Jerson\\SUNASS\\2025\\4_April\\NewsAgent\\base\\01042025\\01042025-1.pdf",
+        "success": true,
+        "error": null,
+        "is_duplicate": true,
+        "duplicate_of": "https://www.facebook.com/share/p/1HcKS3Gx1K/",
+        "processed": false
+    },
+    "https://www.facebook.com/share/p/14fBwMqvz3/": {
+        "url": "https://www.facebook.com/share/p/1HcKS3Gx1K/",
+        "timestamp": "2025-04-24T18:06:56.337239",
+        "pdf_path": "C:\\Jerson\\SUNASS\\2025\\4_April\\NewsAgent\\base\\01042025\\01042025-1.pdf",
+        "success": true,
+        "error": null,
+        "is_duplicate": true,
+        "duplicate_of": "https://www.facebook.com/share/p/1HcKS3Gx1K/",
+        "processed": false
+    }
+}

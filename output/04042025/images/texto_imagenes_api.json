@@ -1,0 +1,26 @@
+[
+  {
+    "image_path": "output\\04042025\\images\\img_10_dcca6dcc_04042025.jpg",
+    "processed_date": "2025-04-24 16:52:47",
+    "file_size_mb": 0.17,
+    "detected_text": "",
+    "success": false,
+    "processing_time_seconds": 7.66
+  },
+  {
+    "image_path": "output\\04042025\\images\\img_11_7843a7ad_04042025.jpg",
+    "processed_date": "2025-04-24 16:52:53",
+    "file_size_mb": 0.2,
+    "detected_text": "",
+    "success": false,
+    "processing_time_seconds": 6.25
+  },
+  {
+    "image_path": "output\\04042025\\images\\img_1_4a8e1e67_04042025.jpg",
+    "processed_date": "2025-04-24 16:53:00",
+    "file_size_mb": 0.4,
+    "detected_text": "",
+    "success": false,
+    "processing_time_seconds": 6.74
+  }
+]

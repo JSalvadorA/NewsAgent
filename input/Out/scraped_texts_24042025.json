@@ -1,0 +1,87 @@
+{
+    "https://www.cutivalu.pe/pobladores-del-asentamiento-humano-31-de-enero-afectados-por-colapso-de-redes-de-desague/": {
+        "error": "Network Error: HTTPSConnectionPool(host='www.cutivalu.pe', port=443): Max retries exceeded with url: /pobladores-del-asentamiento-humano-31-de-enero-afectados-por-colapso-de-redes-de-desague/ (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x0000020BC689EE10>: Failed to resolve 'www.cutivalu.pe' ([Errno 11001] getaddrinfo failed)\"))",
+        "context": "https://www.cutivalu.pe/pobladores-de colapso-de-redes-de-desague/",
+        "page": 1
+    },
+    "https://www.gob.pe/institucion/regionsanmartin/noticias/1154643-gore-san-martin-preocupado-por-avance-del-proyecto-de-agua-potable-en-juanjui": {
+        "error": "Network Error: HTTPSConnectionPool(host='www.gob.pe', port=443): Max retries exceeded with url: /institucion/regionsanmartin/noticias/1154643-gore-san-martin-preocupado-por-avance-del-proyecto-de-agua-potable-en-juanjui (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x0000020BC68AE6D0>: Failed to resolve 'www.gob.pe' ([Errno 11001] getaddrinfo failed)\"))",
+        "context": "https://www.gob.pe/institucion/regionsanmartin/noticias/1154643-gore-s preocupado-por-avance-del-proyecto-de-agua-potable-en-juanjui",
+        "page": 1
+    },
+    "https://larepublica.pe/sociedad/2025/04/23/agua-potable-de-consumo-humano-en-lima-y-regiones-contiene-coliformes-fecales-segun-informe-oculto-de-digesa-1302840": {
+        "error": "Network Error: HTTPSConnectionPool(host='larepublica.pe', port=443): Max retries exceeded with url: /sociedad/2025/04/23/agua-potable-de-consumo-humano-en-lima-y-regiones-contiene-coliformes-fecales-segun-informe-oculto-de-digesa-1302840 (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x0000020BC689FE10>: Failed to resolve 'larepublica.pe' ([Errno 11001] getaddrinfo failed)\"))",
+        "context": "fecales y otro tipo de organismos perniciosos para la salud. https://larepublica.pe/sociedad/2025/04/23/agua-potable-de-consumo-humano-en-lima-y- regiones-contiene-coliformes-fecales-segun-informe-oculto-de-digesa-1302840",
+        "page": 1
+    },
+    "https://wayka.pe/lambayeque-denuncian-que-escolares-de-caserio-eureka-consumen-agua-con-arsenico/": {
+        "error": "Network Error: HTTPSConnectionPool(host='wayka.pe', port=443): Max retries exceeded with url: /lambayeque-denuncian-que-escolares-de-caserio-eureka-consumen-agua-con-arsenico/ (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x0000020BC68AFA50>: Failed to resolve 'wayka.pe' ([Errno 11001] getaddrinfo failed)\"))",
+        "context": "señalan que la atención ha sido lenta y parcial. https://wayka.pe/lambayeque-denuncian-que-escolares-de-caserio-eureka-consumen- agua-con-arsenico/",
+        "page": 1
+    },
+    "https://www.americatv.com.pe/noticias/actualidad/vecinos-no-tienen-agua-reciben-cobros-sedapal-n505599": {
+        "error": "Network Error: HTTPSConnectionPool(host='www.americatv.com.pe', port=443): Max retries exceeded with url: /noticias/actualidad/vecinos-no-tienen-agua-reciben-cobros-sedapal-n505599 (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x0000020BC68BAD50>: Failed to resolve 'www.americatv.com.pe' ([Errno 11001] getaddrinfo failed)\"))",
+        "context": "https://www.americatv.co sedapal-n505599",
+        "page": 1
+    },
+    "https://www.infobae.com/peru/2025/04/24/nueva-rinconada-en-su-hora-cero-los-chinos-no-quieren-arreglar-con-nosotros-entonces-que-los-pobres-se-queden-sin-agua-segun-dirigenta/": {
+        "error": "Network Error: HTTPSConnectionPool(host='www.infobae.com', port=443): Max retries exceeded with url: /peru/2025/04/24/nueva-rinconada-en-su-hora-cero-los-chinos-no-quieren-arreglar-con-nosotros-entonces-que-los-pobres-se-queden-sin-agua-segun-dirigenta/ (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x0000020BC68BAF10>: Failed to resolve 'www.infobae.com' ([Errno 11001] getaddrinfo failed)\"))",
+        "context": "no-quieren-arreg dirigenta/",
+        "page": 2
+    },
+    "https://radiorsd.pe/noticias/contraloria-detecta-incorrecta-administracion-del-servicio-de-agua-potable-en-cascajal": {
+        "error": "Network Error: HTTPSConnectionPool(host='radiorsd.pe', port=443): Max retries exceeded with url: /noticias/contraloria-detecta-incorrecta-administracion-del-servicio-de-agua-potable-en-cascajal (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x0000020BC68A79D0>: Failed to resolve 'radiorsd.pe' ([Errno 11001] getaddrinfo failed)\"))",
+        "context": "https://radiorsd.pe/noticias/contr agua-potable-en-cascajal",
+        "page": 2
+    },
+    "https://noticiaspiura30.pe/mantenimiento-en-ebar-almirante-grau-afecta-abastecimiento-de-agua-en-sectores-de-piura/": {
+        "error": "Network Error: HTTPSConnectionPool(host='noticiaspiura30.pe', port=443): Max retries exceeded with url: /mantenimiento-en-ebar-almirante-grau-afecta-abastecimiento-de-agua-en-sectores-de-piura/ (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x0000020BC68A7110>: Failed to resolve 'noticiaspiura30.pe' ([Errno 11001] getaddrinfo failed)\"))",
+        "context": "https://noticiaspiura30.pe/mantenimie de-agua-en-sectores-de-piura/",
+        "page": 2
+    },
+    "https://www.gob.pe/institucion/munipiura/noticias/1154576-presentan-megaproyecto-de-agua-potable-para-tres-distritos-de-piura-valorizado-en-mas-de-s-653-millones": {
+        "error": "Network Error: HTTPSConnectionPool(host='www.gob.pe', port=443): Max retries exceeded with url: /institucion/munipiura/noticias/1154576-presentan-megaproyecto-de-agua-potable-para-tres-distritos-de-piura-valorizado-en-mas-de-s-653-millones (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x0000020BC68FE950>: Failed to resolve 'www.gob.pe' ([Errno 11001] getaddrinfo failed)\"))",
+        "context": "Veintiséis de Octubre. https://www.gob.pe/institucion/munipiura/noticias/1154576-presentan-megaproyecto-de- agua-potable-para-tres-distritos-de-piura-valorizado-en-mas-de-s-653-millones",
+        "page": 2
+    },
+    "https://inforegion.pe/peru-sera-sede-de-la-cumbre-ministerial-del-agua-de-america-latina-y-el-caribe/": {
+        "error": "Network Error: HTTPSConnectionPool(host='inforegion.pe', port=443): Max retries exceeded with url: /peru-sera-sede-de-la-cumbre-ministerial-del-agua-de-america-latina-y-el-caribe/ (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x0000020BC68EFB90>: Failed to resolve 'inforegion.pe' ([Errno 11001] getaddrinfo failed)\"))",
+        "context": "https://inforegion.p y-el-caribe/",
+        "page": 2
+    },
+    "https://comunicaciones.congreso.gob.pe/noticias/en-sesion-publica-descentralizada-analizan-problematica-de-la-falta-de-agua-en-pasco/": {
+        "error": "Timeout",
+        "context": "técnicos y de infraestructura. Se plantearon posibles soluciones ante la escasez. https://comunicaciones.congreso.gob.pe/noticias/en-sesion-publica-descentralizada- analizan-problematica-de-la-falta-de-agua-en-pasco/",
+        "page": 1
+    },
+    "https://comunicaciones.congreso.gob.pe/damos-cuenta/congresista-cavero-impulsara-acciones-para-solucionar-falta-de-agua-y-entrega-de-viveres-a-madres-de-comedor-popular-en-ate/": {
+        "error": "Network Error: HTTPSConnectionPool(host='comunicaciones.congreso.gob.pe', port=443): Max retries exceeded with url: /damos-cuenta/congresista-cavero-impulsara-acciones-para-solucionar-falta-de-agua-y-entrega-de-viveres-a-madres-de-comedor-popular-en-ate/ (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x0000020BC6919610>: Failed to establish a new connection: [WinError 10065] Se ha intentado una operación de socket en un host no accesible'))",
+        "context": "https://comunicaciones.congreso.gob.pe/damos-cuenta/congresista-cavero-impulsara- acciones-para-solucionar-falta-de-agua-y-entrega-de-viveres-a-madres-de-comedor- popular-en-ate/",
+        "page": 2
+    },
+    "https://diariocorreo.pe/edicion/piura/piura-juntas-de-usuarios-piden-asegurar-agua-hasta-fin-de-ano-noticia/": {
+        "error": "Network Error: HTTPSConnectionPool(host='diariocorreo.pe', port=443): Max retries exceeded with url: /edicion/piura/piura-juntas-de-usuarios-piden-asegurar-agua-hasta-fin-de-ano-noticia/ (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x0000020BC69238D0>: Failed to resolve 'diariocorreo.pe' ([Errno 11001] getaddrinfo failed)\"))",
+        "context": "del año. https://diariocorreo.pe/edicion/piura/piura-juntas-de-usuarios-piden-asegurar-agua-hasta- fin-de-ano-noticia/",
+        "page": 3
+    },
+    "https://revelacion.pe/2025/04/22/sunass-mejora-calidad-del-agua-en-colegios-publicos/": {
+        "error": "Network Error: HTTPSConnectionPool(host='revelacion.pe', port=443): Max retries exceeded with url: /2025/04/22/sunass-mejora-calidad-del-agua-en-colegios-publicos/ (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x0000020BC6908350>: Failed to resolve 'revelacion.pe' ([Errno 11001] getaddrinfo failed)\"))",
+        "context": "Noticias Aqp, Diario Revis DTodo, Revelación, El Pu ena Informativa, Diario El",
+        "page": 3
+    },
+    "https://cheleloyborolas.com/index.php?option=com_content&view=article&id=72994:sunass-logra-que-en-3-de-cada-4-colegios-se-mejore-cloracion-de-agua-a-traves-del-programa-colegio-con-agua-segura&catid=10&Itemid=103": {
+        "error": "Network Error: HTTPSConnectionPool(host='cheleloyborolas.com', port=443): Max retries exceeded with url: /index.php?option=com_content&view=article&id=72994:sunass-logra-que-en-3-de-cada-4-colegios-se-mejore-cloracion-de-agua-a-traves-del-programa-colegio-con-agua-segura&catid=10&Itemid=103 (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x0000020BC68FEB50>: Failed to resolve 'cheleloyborolas.com' ([Errno 11001] getaddrinfo failed)\"))",
+        "context": "Noticias.pe, DT Borolas, Cade Sunass hace",
+        "page": 3
+    },
+    "https://imacorpplataforma.com/agua-y-saneamiento/el-estado-a-tu-servicio-sunass-hace-seguimiento-a-empresas-de-agua-para-garantizar-un-optimo-servicio-23-04-2025/": {
+        "error": "Network Error: HTTPSConnectionPool(host='imacorpplataforma.com', port=443): Max retries exceeded with url: /agua-y-saneamiento/el-estado-a-tu-servicio-sunass-hace-seguimiento-a-empresas-de-agua-para-garantizar-un-optimo-servicio-23-04-2025/ (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x0000020BC68EFFD0>: Failed to resolve 'imacorpplataforma.com' ([Errno 11001] getaddrinfo failed)\"))",
+        "context": "ón y de Sandro Huam EPS. (TV Perú)",
+        "page": 3
+    },
+    "https://imacorpplataforma.com/agua-y-saneamiento/vecinos-del-rimac-denuncian-falta-de-agua-y-facturacion-atipica-c4-23-04-2025/": {
+        "error": "Network Error: HTTPSConnectionPool(host='imacorpplataforma.com', port=443): Max retries exceeded with url: /agua-y-saneamiento/vecinos-del-rimac-denuncian-falta-de-agua-y-facturacion-atipica-c4-23-04-2025/ (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x0000020BC68EC650>: Failed to resolve 'imacorpplataforma.com' ([Errno 11001] getaddrinfo failed)\"))",
+        "context": "ó un comunicado donde curso. (América Noticias)",
+        "page": 4
+    }
+}

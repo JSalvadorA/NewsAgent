@@ -108,7 +108,10 @@ def process_facebook_urls(date_str, fb_urls=None):
     
     # Si no se proporcionaron URLs, cargar de archivo si existe
     if not fb_urls:
+        # Buscar archivo con ambos formatos (con y sin sufijo '_unprocessed')
         social_file = os.path.join(project_root, 'input', 'Social', f'social_links_{date_str}.json')
+        if not os.path.exists(social_file):
+            social_file = os.path.join(project_root, 'input', 'Social', f'social_links_{date_str}_unprocessed.json')
         if os.path.exists(social_file):
             try:
                 with open(social_file, 'r', encoding='utf-8') as f:
@@ -124,7 +127,10 @@ def process_facebook_urls(date_str, fb_urls=None):
         
         # Si no hay URLs, salir
         if not fb_urls:
-            logger.warning("No se encontraron URLs de Facebook para procesar")
+            if os.path.exists(social_file):
+                logger.warning("El archivo existe pero no contiene URLs de Facebook para procesar")
+            else:
+                logger.warning(f"No se encontró el archivo de enlaces sociales: {social_file} ni su versión '_unprocessed'")
             return {}
     
     # Limitar el número de URLs para evitar congelamientos
@@ -203,11 +209,43 @@ def process_facebook_urls(date_str, fb_urls=None):
     return results
 
 if __name__ == "__main__":
-    # Obtener fecha del argumento o usar por defecto
-    date_str = sys.argv[1] if len(sys.argv) > 1 else datetime.today().strftime('%d%m%Y')
+    import argparse
+    
+    # Configurar parser de argumentos
+    parser = argparse.ArgumentParser(description='Procesar URLs de Facebook con deduplicación')
+    parser.add_argument('date', nargs='?', help='Fecha en formato DDMMYYYY', 
+                     default=datetime.today().strftime('%d%m%Y'))
+    parser.add_argument('--urls', '-u', nargs='+', help='Lista de URLs de Facebook a procesar directamente')
+    parser.add_argument('--file', '-f', help='Ruta a un archivo JSON con URLs de Facebook')
+    
+    args = parser.parse_args()
+    date_str = args.date
+    
+    # Obtener URLs si se proporcionaron directamente
+    fb_urls = None
+    if args.urls:
+        fb_urls = args.urls
+        logger.info(f"Usando {len(fb_urls)} URLs proporcionadas como argumentos")
+    elif args.file:
+        try:
+            with open(args.file, 'r', encoding='utf-8') as f:
+                file_data = json.load(f)
+                if isinstance(file_data, list):
+                    # Si es una lista de URLs directamente
+                    if all(isinstance(item, str) for item in file_data):
+                        fb_urls = file_data
+                    # Si es una lista de objetos con URL
+                    elif all(isinstance(item, dict) and 'URL' in item for item in file_data):
+                        fb_urls = [item['URL'] for item in file_data 
+                                  if "facebook.com" in item['URL'].lower() or "fb.com" in item['URL'].lower()]
+                    logger.info(f"Cargadas {len(fb_urls)} URLs de Facebook desde {args.file}")
+                else:
+                    logger.error(f"Formato de archivo no válido en {args.file}")
+        except Exception as e:
+            logger.error(f"Error cargando URLs desde archivo {args.file}: {e}")
     
     logger.info(f"=== Iniciando procesamiento de Facebook para fecha: {date_str} ===")
-    results = process_facebook_urls(date_str)
+    results = process_facebook_urls(date_str, fb_urls)
     
     # Mostrar resumen
     if results:
